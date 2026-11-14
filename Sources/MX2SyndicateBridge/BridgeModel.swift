@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
 import BridgeCore
+import MX2Native
+import MX2Feedback
 
 @MainActor
 final class BridgeModel: ObservableObject {
@@ -17,9 +19,18 @@ final class BridgeModel: ObservableObject {
     @Published var lastOutput = "No OSC sent yet"
     @Published var eventCount = 0
     @Published var flash = false
+    @Published var nativeStatus = "Native idle"
+    @Published var nativeConnected = false
+    @Published var nativeInput = "No native input yet"
+    @Published var feedbackStatus = "Feedback not started"
+    @Published var rgbStatus = "RGB not sent"
+    @Published var deckPair = 1
+    @Published var padBank: MX2PadBank = .hotcues
 
     let midi = MIDIMonitor()
     let osc = OSCSender()
+    let native = MX2NativeController()
+    let feedback = MX2FeedbackClient()
 
     private var shiftPressed = false
 
@@ -39,6 +50,40 @@ final class BridgeModel: ObservableObject {
         midi.onMessage = { [weak self] message in self?.handle(message) }
         osc.onError = { [weak self] error in self?.lastOutput = "UDP error: \(error)" }
         midi.start()
+        native.onStatus = { [weak self] status, connected in
+            self?.nativeStatus = status
+            self?.nativeConnected = connected
+        }
+        native.onControl = { [weak self] message in self?.send(message) }
+        native.onEvent = { [weak self] event in
+            self?.nativeInput = String(describing: event)
+            self?.feedback.shift = self?.native.shift ?? [false, false]
+            if let bank = self?.native.banks[0] {
+                self?.padBank = bank
+                self?.feedback.banks = self?.native.banks.map(Self.padMode(for:)) ?? [.hotcues, .hotcues]
+            }
+        }
+        native.onRGB = { [weak self] _, status in
+            self?.rgbStatus = status == 0 ? "RGB acknowledged" : "RGB error \(status)"
+        }
+        native.onStateChange = { [weak self] in
+            guard let self else { return }
+            self.feedback.cueActive = self.native.cueActive
+            self.feedback.headphoneCue = self.native.headphoneCue
+            self.feedback.shift = self.native.shift
+        }
+        feedback.onStatus = { [weak self] status in self?.feedbackStatus = status }
+        feedback.onState = { [weak self] state in
+            guard let self else { return }
+            self.feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters"
+        }
+        feedback.onResend = { [weak self] in
+            self?.osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+        }
+        feedback.onRGB = { [weak self] image in self?.native.sendRGB(image) }
+        native.start()
+        feedback.start()
+        osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
     }
 
     func handle(_ event: MX2MIDIEvent) {
@@ -63,7 +108,7 @@ final class BridgeModel: ObservableObject {
         }
     }
 
-    private func send(_ outgoing: OSCMessage) {
+    private func send(_ outgoing: BridgeCore.OSCMessage) {
         osc.send(outgoing)
         eventCount += 1
         lastOutput = "\(outgoing.address) · \(outgoing.integer)"
@@ -103,6 +148,29 @@ final class BridgeModel: ObservableObject {
         midi.selectDevice(named: "Traktor MX2")
     }
 
+    func setDeckPair(_ pair: Int) {
+        deckPair = pair
+        native.mapping.firstDeck = pair
+        feedback.configure(firstDeck: pair)
+        osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+    }
+
+    func setPadBank(_ bank: MX2PadBank) {
+        padBank = bank
+        native.banks = [bank, bank]
+        let mode = Self.padMode(for: bank)
+        feedback.banks = [mode, mode]
+    }
+
+    static func padMode(for bank: MX2PadBank) -> MX2PadMode {
+        switch bank {
+        case .hotcues: .hotcues
+        case .loops: .loops
+        case .stems: .stems
+        case .pattern: .pattern
+        }
+    }
+
     func openSyndicateSettings() {
         NSRunningApplication.runningApplications(withBundleIdentifier: "com.syndicate.app").first?.activate()
         let source = CGEventSource(stateID: .hidSystemState)
@@ -120,6 +188,14 @@ struct ContentView: View {
     @State private var showSettings = false
 
     var body: some View {
+        TabView {
+            midiPage.tabItem { Text("MIDI Browse") }
+            nativePage.tabItem { Text("Native + RGB") }
+        }
+        .frame(width: 430)
+    }
+
+    private var midiPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
@@ -211,4 +287,62 @@ struct ContentView: View {
         .frame(width: 410)
         .textFieldStyle(.roundedBorder)
     }
+
+    private var nativePage: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("INDIRECT INPUT")
+                    .font(.system(size: 19, weight: .bold, design: .monospaced))
+                Text("MX2 · Native companion")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 8) {
+                Circle().fill(model.nativeConnected ? Color.green : Color.orange)
+                    .frame(width: 8, height: 8)
+                Text(model.nativeStatus).font(.callout)
+            }
+            LabeledContent("Deck pair") {
+                Picker("", selection: Binding(
+                    get: { model.deckPair }, set: { model.setDeckPair($0) })) {
+                    Text("1 + 2").tag(1)
+                    Text("3 + 4").tag(3)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            }
+            LabeledContent("Pad bank") {
+                Picker("", selection: Binding(
+                    get: { model.padBank }, set: { model.setPadBank($0) })) {
+                    Text("Cues").tag(MX2PadBank.hotcues)
+                    Text("FX").tag(MX2PadBank.stems)
+                    Text("Sampler").tag(MX2PadBank.pattern)
+                    Text("Loops").tag(MX2PadBank.loops)
+                }
+                .labelsHidden()
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text(model.nativeInput).font(.caption)
+                Text(model.feedbackStatus).font(.caption).foregroundStyle(.secondary)
+                Text(model.rgbStatus).font(.caption).foregroundStyle(.secondary)
+                Text("\(model.eventCount) OSC events")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+            Text("Native mode gives full HID controls and RGB. MIDI Browse remains available as a fallback. In Syndicate, enable OSC INPUT and subscribe to Playing, Cues, Loop, and Meter feedback on port 9096.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Resend feedback") {
+                    model.osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+                }
+                Button("Open OSC Settings") { model.openSyndicateSettings() }
+            }
+        }
+        .padding(20)
+    }
 }
+

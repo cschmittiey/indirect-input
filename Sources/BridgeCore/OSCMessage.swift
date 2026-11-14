@@ -1,20 +1,56 @@
 import Foundation
 
+public enum OSCArgument: Equatable, Sendable {
+    case int(Int32)
+    case float(Float)
+    case string(String)
+}
+
 public struct OSCMessage: Equatable, Sendable {
     public let address: String
-    public let integer: Int32
+    public let arguments: [OSCArgument]
+
+    public var integer: Int32 {
+        if case let .int(value)? = arguments.first { return value }
+        return 0
+    }
 
     public init(address: String, integer: Int32) {
+        self.init(address: address, arguments: [.int(integer)])
+    }
+
+    public init(address: String, float: Float) {
+        self.init(address: address, arguments: [.float(float)])
+    }
+
+    public init(address: String, arguments: [OSCArgument]) {
         self.address = address
-        self.integer = integer
+        self.arguments = arguments
     }
 
     public var packet: Data {
         var data = Data()
         Self.appendPaddedString(address, to: &data)
-        Self.appendPaddedString(",i", to: &data)
-        var value = integer.bigEndian
-        withUnsafeBytes(of: &value) { data.append(contentsOf: $0) }
+        let tags = "," + arguments.map {
+            switch $0 {
+            case .int: return "i"
+            case .float: return "f"
+            case .string: return "s"
+            }
+        }.joined()
+        Self.appendPaddedString(tags, to: &data)
+        for argument in arguments {
+            switch argument {
+            case let .int(value):
+                var bigEndian = value.bigEndian
+                withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
+            case let .float(value):
+                var bigEndian = value.bitPattern.bigEndian
+                withUnsafeBytes(of: &bigEndian) { data.append(contentsOf: $0) }
+            case let .string(value):
+                Self.appendPaddedString(value, to: &data)
+            }
+        }
         return data
     }
 

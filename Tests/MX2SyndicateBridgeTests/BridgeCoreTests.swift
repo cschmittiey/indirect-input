@@ -2,6 +2,17 @@ import XCTest
 import BridgeCore
 
 final class BridgeCoreTests: XCTestCase {
+    func testFloatAndMultiArgumentOSCMessageEncoding() {
+        let message = OSCMessage(address: "/Deck/1/HotCue",
+                                 arguments: [.int(3), .int(1)])
+        XCTAssertEqual(message.integer, 3)
+        XCTAssertEqual(Array(message.packet), Array("/Deck/1/HotCue\0".utf8) + [
+            0, 44, 105, 105, 0, 0, 0, 0, 3, 0, 0, 0, 1
+        ])
+        let floatMessage = OSCMessage(address: "/Deck/1/TempoSlider", float: 1)
+        XCTAssertEqual(floatMessage.arguments, [.float(1)])
+    }
+
     func testShiftedBrowseUsesTreeNavigationAndLoadUsesSelectedDeck() {
         let event = BrowseEvent(channel: 2, controller: 19, value: 63)!
         XCTAssertEqual(BridgeRouting.message(for: event, shifted: true).address,
