@@ -21,25 +21,35 @@ final class MX2LEDRendererTests: XCTestCase {
         XCTAssertEqual(MX2LEDLayout.byteCount, 105)
     }
 
-    func testEmptyStateLightsNothingOutsideTheSelectedBank() {
-        // Contract: with no feedback, the only non-zero bytes are the selected bank's
-        // indicator and that bank's pads (dim, so the layout is findable). Everything
-        // else — transport, toggles, under-shell, meters — must be 0.
+    func testEmptyStateShowsLayoutDimlyButNothingBright() {
+        // Contract: with no feedback, the panel is still legible — unmapped controls
+        // carry a dim "no signal" tint, state controls sit dim, inactive pad banks show
+        // a dim tint — but NOTHING may be bright except a pattern running light. An idle
+        // deck must never look like it is doing something.
         for mode in MX2PadMode.allCases {
             let frame = renderer.render(state: MX2FeedbackState(),
                                         context: MX2RenderContext(padMode: mode))
             XCTAssertEqual(frame.count, 105)
-            let pads = Array(21...28) + Array(51...58)
-            let indicators = [17, 18, 19, 20, 47, 48, 49, 50]
-            for id in 1...105 where !pads.contains(id) && !indicators.contains(id) {
-                XCTAssertEqual(byte(frame, id: id), 0, "\(mode): id \(id) should be dark")
-            }
-            // A pattern running light is the one thing that may be bright.
-            // Both decks read samplerStep 0, so both running lights sit on pad 1.
-            let mayBeLit = Set(indicators).union(MX2PadMode.pattern == mode ? [21, 51] : [])
+            // The active bank indicator is legitimately bright; everything else,
+            // including the inactive bank tint and the unmapped tint, must be dim.
+            let indicators = [MX2Control.hotcues, .stems, .pattern, .loops]
+            let activeIDs = Set(indicators.filter {
+                ($0 == .hotcues && mode == .hotcues) || ($0 == .stems && mode == .stems)
+                    || ($0 == .pattern && mode == .pattern) || ($0 == .loops && mode == .loops)
+            }.map { MX2LEDLayout.id(physicalDeck: 1, control: $0) }
+                + indicators.filter {
+                ($0 == .hotcues && mode == .hotcues) || ($0 == .stems && mode == .stems)
+                    || ($0 == .pattern && mode == .pattern) || ($0 == .loops && mode == .loops)
+            }.map { MX2LEDLayout.id(physicalDeck: 2, control: $0) })
+            let mayBeLit = Set(activeIDs).union(MX2PadMode.pattern == mode ? [21, 51] : [])
             for id in 1...105 where !mayBeLit.contains(id) {
                 let value = byte(frame, id: id)
                 XCTAssertNotEqual(value % 4, 2, "\(mode): id \(id) = \(value) should be dim")
+            }
+            // PLAY is genuinely unknown at startup and must not pretend otherwise; CUE
+            // carries its dim tint, which is why it is excluded here.
+            for id in Array(30...30) + Array(60...60) + Array(87...104) {
+                XCTAssertEqual(byte(frame, id: id), 0, "\(mode): id \(id) must be dark")
             }
         }
     }
@@ -63,7 +73,11 @@ final class MX2LEDRendererTests: XCTestCase {
         }
     }
 
-    func testOnlyActivePadBankIndicatorLights() {
+    func testOnlyActivePadBankIndicatorIsBright() {
+        // Contract change, deliberately: inactive banks used to be byte 0. They now
+        // carry a DIM tint of their own colour so the whole selector row is visible and
+        // an unmapped control is never mistaken for a dark-but-working one. "Only the
+        // active one lights" becomes "only the active one is bright".
         for mode in MX2PadMode.allCases {
             let frame = renderer.render(state: MX2FeedbackState(),
                                         context: MX2RenderContext(padMode: mode))
@@ -72,9 +86,28 @@ final class MX2LEDRendererTests: XCTestCase {
                     || (mode == .stems && control == .stems)
                     || (mode == .pattern && control == .pattern)
                     || (mode == .loops && control == .loops)
-                XCTAssertEqual(self.control(frame, deck: 1, control) != 0, isActive,
-                               "\(mode)/\(control)")
+                let byte = self.control(frame, deck: 1, control)
+                XCTAssertNotEqual(byte, 0, "\(mode)/\(control) should be visible")
+                if isActive {
+                    XCTAssertEqual(byte % 4, 2, "\(mode)/\(control) should be bright")
+                } else {
+                    XCTAssertEqual(byte % 4, 0, "\(mode)/\(control) should be dim")
+                }
             }
+        }
+    }
+
+    func testUnmappedControlsShowDimUnmappedTintNotBlack() {
+        // An unmapped control is rendered dim magenta — a colour no real deck state
+        // uses — so it reads as "no signal yet" rather than as a working control that
+        // happens to be off, and the panel is not a dead black void.
+        let frame = renderer.render(state: MX2FeedbackState(), context: MX2RenderContext())
+        for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
+                        .preview, .view, .flux, .reverse, .turntable, .jog] {
+            let byte = self.control(frame, deck: 1, control)
+            XCTAssertEqual(byte, MX2LEDColor.dimUnmapped.byte(lit: false),
+                           "\(control) should be dim unmapped tint")
+            XCTAssertEqual(byte % 4, 0, "\(control) must never be bright")
         }
     }
 
@@ -173,7 +206,17 @@ final class MX2LEDRendererTests: XCTestCase {
         let context = MX2RenderContext(cueActive: [2: true])
         let active = renderer.render(state: state, context: context)
         XCTAssertEqual(control(active, deck: 2, .cue), MX2LEDColor.orange.byte(lit: true))
-        XCTAssertEqual(control(active, deck: 1, .cue), 0)
+        // Deck 1 is empty AND not previewing, so its CUE sits dim rather than black.
+        XCTAssertEqual(control(active, deck: 1, .cue), MX2LEDColor.orange.byte(lit: false))
+    }
+
+    func testFilterAvailabilityDoesNotPretendToBeAnActiveEffectAtUnverifiedLEDIDs() {
+        var state = MX2FeedbackState()
+        state.filterEnabled = [1: true, 2: true, 3: true, 4: true]
+        let frame = renderer.render(state: state)
+        for id in 61...73 {
+            XCTAssertEqual(byte(frame, id: id), 0, "availability is not activation: LED \(id)")
+        }
     }
 
     func testHeadphoneCueTurnsCompletelyOff() {
@@ -194,7 +237,8 @@ final class MX2LEDRendererTests: XCTestCase {
         let frame = renderer.render(state: state, context: context)
         XCTAssertEqual(control(frame, deck: 1, .sync), MX2LEDColor.blue.byte(lit: true))
         XCTAssertEqual(control(frame, deck: 1, .keylock), MX2LEDColor.blue.byte(lit: true))
-        XCTAssertEqual(control(frame, deck: 1, .master), 0)
+        // Not the master: blue but dim, not black.
+        XCTAssertEqual(control(frame, deck: 1, .master), MX2LEDColor.blue.byte(lit: false))
         XCTAssertEqual(control(frame, deck: 2, .master), MX2LEDColor.blue.byte(lit: true))
     }
 
@@ -258,12 +302,45 @@ final class MX2LEDRendererTests: XCTestCase {
         XCTAssertEqual(MX2LEDColor.cueColor(slot: 2, palette: palette), .orange)
     }
 
+    func testHeldPopulatedHotcueLightsWithoutWaitingForFeedbackAndRespectsShift() {
+        var state = MX2FeedbackState()
+        state[deck: 3].cues[2] = MX2Cue(color: 5)
+        var context = MX2RenderContext(
+            deckAssignment: MX2DeckAssignment(deckA: 3, deckB: 4),
+            heldPads: [1: [2]])
+        let held = renderer.render(state: state, context: context)
+        XCTAssertEqual(control(held, deck: 1, .pad3), 38)
+        XCTAssertEqual(control(held, deck: 2, .pad3), 0)
+
+        context.shiftPressed = true
+        XCTAssertEqual(control(renderer.render(state: state, context: context), deck: 1, .pad3), 36)
+        context.shiftPressed = false
+        context.heldPads = [:]
+        XCTAssertEqual(control(renderer.render(state: state, context: context), deck: 1, .pad3), 36)
+    }
+
     func testHeldEmptyPadStillRendersDim() {
         var state = MX2FeedbackState()
         state[deck: 1].loaded = true
         let context = MX2RenderContext(heldPads: [1: [1]])
         let frame = renderer.render(state: state, context: context)
         XCTAssertEqual(control(frame, deck: 1, .pad2), MX2LEDColor.white.byte(lit: false))
+    }
+
+    func testHeldLoopPadShowsTheActualHardwarePressWithoutLightingOtherPads() {
+        var context = MX2RenderContext(padMode: .loops, heldPads: [2: [5]])
+        var frame = renderer.render(state: MX2FeedbackState(), context: context)
+        for (index, pad) in MX2Control.pads.enumerated() {
+            XCTAssertEqual(control(frame, deck: 2, pad), index == 5 ? 30 : 28)
+            XCTAssertEqual(control(frame, deck: 1, pad), 28)
+        }
+        context.shiftPressed = true
+        frame = renderer.render(state: MX2FeedbackState(), context: context)
+        XCTAssertEqual(control(frame, deck: 2, .pad6), 28)
+        context.shiftPressed = false
+        context.heldPads = [:]
+        frame = renderer.render(state: MX2FeedbackState(), context: context)
+        XCTAssertEqual(control(frame, deck: 2, .pad6), 28)
     }
 
     func testLoopBankLightsGreenWhenLooping() {
@@ -312,13 +389,14 @@ final class MX2LEDRendererTests: XCTestCase {
         XCTAssertEqual(control(frame, deck: 1, .pad2), MX2LEDColor.orange.byte(lit: true))
     }
 
-    func testActivePadModeIndicatorOnlyIsLit() {
+    func testActivePadModeIndicatorOnlyIsBright() {
         let frame = renderer.render(state: MX2FeedbackState(),
                                     context: MX2RenderContext(padMode: .stems))
         XCTAssertEqual(control(frame, deck: 1, .stems), MX2LEDColor.purple.byte(lit: true))
-        XCTAssertEqual(control(frame, deck: 1, .hotcues), 0)
-        XCTAssertEqual(control(frame, deck: 1, .loops), 0)
-        XCTAssertEqual(control(frame, deck: 1, .pattern), 0)
+        // Inactive banks are dim tints, not black, so the selector row reads as a row.
+        XCTAssertEqual(control(frame, deck: 1, .hotcues), MX2LEDColor.red.byte(lit: false))
+        XCTAssertEqual(control(frame, deck: 1, .loops), MX2LEDColor.green.byte(lit: false))
+        XCTAssertEqual(control(frame, deck: 1, .pattern), MX2LEDColor.orange.byte(lit: false))
     }
 
     // MARK: Deck pair mapping
@@ -363,6 +441,17 @@ final class MX2LEDRendererTests: XCTestCase {
     }
 
     // MARK: Meters
+
+    func testNonFiniteMeterFeedbackIsDarkRatherThanFullOrCrashing() {
+        for level in [Double.infinity, -Double.infinity, Double.nan] {
+            var state = MX2FeedbackState()
+            state.meters[1] = level
+            let frame = renderer.render(state: state)
+            for id in 87...95 {
+                XCTAssertEqual(byte(frame, id: id), 0, "invalid meter \(level), LED \(id)")
+            }
+        }
+    }
 
     func testSilentMeterIsDark() {
         let frame = renderer.render(state: MX2FeedbackState(), context: .init())

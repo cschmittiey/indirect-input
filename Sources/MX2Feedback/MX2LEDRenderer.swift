@@ -39,6 +39,11 @@ public enum MX2LEDColor: Int, CaseIterable, Sendable {
         }
     }
 
+    /// Deliberately outside the palette the hardware uses for real state, so an
+    /// unmapped control can never be mistaken for a genuinely lit one. Rendered only
+    /// at `dim`, never `lit`.
+    public static let dimUnmapped: MX2LEDColor = .magenta
+
     /// Closest MX2 colour for an arbitrary RGB value (near-black maps to `.off`).
     public static func nearest(to rgb: MX2RGB) -> MX2LEDColor {
         if rgb.red + rgb.green + rgb.blue < 24 { return .off }
@@ -90,8 +95,8 @@ public enum MX2LEDColor: Int, CaseIterable, Sendable {
 /// Byte layout of the MX2's 105-byte Native LED frame.
 ///
 /// IDs are the firmware's 1-based LED numbers; the frame stores them at `id - 1`, so
-/// a 105-byte array covers IDs 1…105. IDs 61…73 and 105 are unused by this renderer
-/// and stay 0.
+/// a 105-byte array covers IDs 1…105. IDs 61…73 stay 0 except the established
+/// headphone-Cue IDs 64 and 68; IDs 86 and 105 are also unused and stay 0.
 public enum MX2LEDLayout {
     public static let byteCount = 105
 
@@ -292,15 +297,13 @@ public struct MX2LEDRenderer: Sendable {
         for physicalDeck in 1...2 {
             let deckNumber = context.deckAssignment.deck(for: physicalDeck)
             let headphoneID = physicalDeck == 1 ? 64 : 68
-            let filterID = physicalDeck == 1 ? 62 : 66
+            // OSC 14.10 defines Filter1Enabled/Filter2Enabled as knob availability
+            // (currently always 1), not an active filter. Neither has a verified LED
+            // assignment here; do not make an idle mixer appear to have FX engaged.
             if let index = MX2LEDLayout.byteIndex(id: headphoneID) {
                 let enabled = context.headphoneCue[physicalDeck]
                     ?? state.headphoneCue[deckNumber] ?? false
                 frame[index] = enabled ? MX2LEDColor.white.byte(lit: true) : 0
-            }
-            if let index = MX2LEDLayout.byteIndex(id: filterID) {
-                let enabled = state.filterEnabled[deckNumber] ?? false
-                frame[index] = enabled ? MX2LEDColor.orange.byte(lit: true) : 0
             }
         }
     }
@@ -331,20 +334,21 @@ public struct MX2LEDRenderer: Sendable {
             }
         }
 
-        // Indicators with no feedback source stay dark. Filling them from a
-        // hardcoded palette made an idle controller look like it had state it did
-        // not have — red FX buttons and a white Shift that never went out — and it
-        // buried the LEDs that do track real feedback.
+        // Indicators with no feedback source show a dim magenta "no signal" tint
+        // rather than going black. Two reasons: an unmapped control is then visible at
+        // a glance instead of indistinguishable from a working control in its off state,
+        // and a totally dark panel reads as "broken" rather than "idle". They are
+        // deliberately DIM and deliberately not a colour any real deck state uses.
         for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
                         .preview, .view, .flux, .reverse, .turntable, .jog] {
-            set(control, .off, .off)
+            set(control, .dimUnmapped, .dim)
         }
         set(.shift, .white, context.shiftPressed ? .lit : .off)
-        set(.sync, .blue, deck.sync ? .lit : .off)
-        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .off)
-        set(.keylock, .blue, deck.pitchPreserve ? .lit : .off)
+        set(.sync, .blue, deck.sync ? .lit : .dim)
+        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .dim)
+        set(.keylock, .blue, deck.pitchPreserve ? .lit : .dim)
         let previewActive = context.cueActive[physicalDeck] ?? deck.cueActive
-        set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .off))
+        set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .dim))
 
         // Transport: pending wins over playing wins over loaded.
         if deck.playPending || state.playPending {
@@ -357,12 +361,13 @@ public struct MX2LEDRenderer: Sendable {
             set(.play, .off, .off)
         }
 
-        // Pad-bank indicators: the active bank is lit, the rest are dark. A dim code
-        // would make an empty state glow, and the bank is only meaningful when active.
-        set(.hotcues, .red, context.padMode == .hotcues ? .lit : .off)
-        set(.stems, .purple, context.padMode == .stems ? .lit : .off)
-        set(.pattern, .orange, context.padMode == .pattern ? .lit : .off)
-        set(.loops, .green, context.padMode == .loops ? .lit : .off)
+        // Pad-bank indicators: the active bank is lit; the others show a dim tint of
+        // their own colour so the whole row is visible and you can see which banks
+        // exist, without claiming one is active.
+        set(.hotcues, .red, context.padMode == .hotcues ? .lit : .dim)
+        set(.stems, .purple, context.padMode == .stems ? .lit : .dim)
+        set(.pattern, .orange, context.padMode == .pattern ? .lit : .dim)
+        set(.loops, .green, context.padMode == .loops ? .lit : .dim)
 
         let held = context.heldPads[physicalDeck] ?? []
         for (index, control) in MX2Control.pads.enumerated() {
@@ -387,10 +392,12 @@ public struct MX2LEDRenderer: Sendable {
                 return held ? (.white, .dim) : (.off, .off)
             }
             let color = MX2LEDColor.cueColor(slot: cue.color, palette: state.palette)
-            return (color, cue.pressed ? active : .dim)
+            return (color, cue.pressed || held ? active : .dim)
 
         case .loops:
-            return (.green, deck.loop ? active : .dim)
+            // Feedback knows only whether a loop is active, not which size pad
+            // started it. Hardware holds can identify a pad without inventing size.
+            return (.green, deck.loop || held ? active : .dim)
 
         case .stems:
             let color: MX2LEDColor = index < 4 ? .purple : .cyan
@@ -434,7 +441,8 @@ public struct MX2LEDRenderer: Sendable {
                             state: MX2FeedbackState,
                             context: MX2RenderContext) -> Double {
         let channel = context.meterChannel[physicalDeck] ?? deckNumber
-        return min(max(state.meters[channel] ?? 0, 0), 1)
+        guard let level = state.meters[channel], level.isFinite else { return 0 }
+        return min(max(level, 0), 1)
     }
 
     private func renderMeter(level: Double, physicalDeck: Int, into frame: inout [UInt8]) {

@@ -16,11 +16,15 @@ public struct MX2Mapping: Sendable {
                       shift: [Bool],
                       jogMode: [Bool],
                       cueActive: [Bool] = [false, false],
-                      headphoneCue: [Bool] = [false, false]) -> [OSCMessage] {
+                      headphoneCue: [Bool] = [false, false],
+                      pitchPreserve: [Int: Bool] = [:],
+                      cueSlip: [Int: Bool] = [:],
+                      samplerMute: [Int: [Int: Bool]] = [:]) -> [OSCMessage] {
         switch event {
         case let .button(control, pressed):
             return button(control, pressed: pressed, bank: bank, shift: shift, jogMode: jogMode,
-                          cueActive: cueActive, headphoneCue: headphoneCue)
+                          cueActive: cueActive, headphoneCue: headphoneCue,
+                          pitchPreserve: pitchPreserve, cueSlip: cueSlip, samplerMute: samplerMute)
         case let .analog(control, raw):
             return analog(control, raw: raw)
         case let .encoder(control, delta):
@@ -34,7 +38,9 @@ public struct MX2Mapping: Sendable {
 
     private func button(_ control: MX2Control, pressed: Bool,
                         bank: [MX2PadBank], shift: [Bool], jogMode: [Bool],
-                        cueActive: [Bool], headphoneCue: [Bool]) -> [OSCMessage] {
+                        cueActive: [Bool], headphoneCue: [Bool],
+                        pitchPreserve: [Int: Bool], cueSlip: [Int: Bool],
+                        samplerMute: [Int: [Int: Bool]]) -> [OSCMessage] {
         switch control {
         case let .play(side):
             guard pressed else { return [] }
@@ -52,10 +58,12 @@ public struct MX2Mapping: Sendable {
             return [message("/Deck/\(self.deck(side))/TempoMaster")]
         case let .keyLock(side):
             guard pressed else { return [] }
-            return [message("/Deck/\(self.deck(side))/PitchPreserve")]
+            let deck = self.deck(side)
+            return [message("/Deck/\(deck)/PitchPreserve", int: pitchPreserve[deck, default: false] ? 1 : 0)]
         case let .flux(side):
             guard pressed else { return [] }
-            return [message("/Deck/\(self.deck(side))/CueSlip")]
+            let deck = self.deck(side)
+            return [message("/Deck/\(deck)/CueSlip", int: cueSlip[deck, default: false] ? 1 : 0)]
         case let .reverse(side):
             return [message("/Deck/\(self.deck(side))/Reverse", int: pressed ? 1 : 0)]
         case let .bank(side, bank):
@@ -71,10 +79,20 @@ public struct MX2Mapping: Sendable {
                 }
                 return [message("/Deck/\(deck)/HotCue", arguments: [.int(Int32(index)), .int(pressed ? 1 : 0)])]
             case .stems:
-                guard pressed else { return [] }
-                return [message("/Mixer/CH\(deck)/FX/Macro/\(index)", float: 1)]
+                // 0.3.10 documents no stem-control OSC routes. FX macros operate
+                // channel inserts, not stems; do not modify unrelated effects.
+                return []
             case .pattern:
-                return [] // Lane triggering uses Sampler/LaneSet in a later patch.
+                guard pressed else { return [] }
+                if shifted {
+                    // LaneSet takes a ONE-based lane and does not change selection.
+                    let muted = samplerMute[deck]?[index] ?? false
+                    return [message("/Deck/\(deck)/Sampler/LaneSet", arguments: [
+                        .int(Int32(index)), .string("Mute"), .float(muted ? 1 : 0)
+                    ])]
+                }
+                // Lane is a zero-based selection index, not a sample trigger.
+                return [message("/Deck/\(deck)/Sampler/Lane", int: Int32(index - 1))]
             case .loops:
                 let sizes = ["ThirtySecond", "Sixteenth", "Eighth", "Quarter", "Half", "One", "Two", "Four"]
                 return [message("/Deck/\(deck)/SlipLoop/\(sizes[index - 1])", int: pressed ? 1 : 0)]

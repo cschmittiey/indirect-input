@@ -62,16 +62,17 @@ final class MX2NativeTests: XCTestCase {
     }
 
     @MainActor
-    func testIdleFeedbackFrameLeavesUnfedControlsDark() {
-        // This test used to assert the static-layout bug: bright orange FX buttons and
-        // a dim blue Sync on an idle controller, which is what made the deck look
-        // broken. With no feedback the frame must be dark apart from the selected
-        // bank indicator, so anything that lights up is genuinely tracked state.
+    func testIdleFeedbackFrameIsLegibleButShowsNoRealState() {
+        // With no feedback, nothing may claim real state: PLAY and the meters stay
+        // dark. But the panel is not a black void — unmapped controls carry a dim
+        // "no signal" tint and offline state controls sit dim, so a dead control is
+        // distinguishable from a working one that is simply off.
         let client = MX2FeedbackClient()
         let image = client.renderForTesting()
         XCTAssertEqual(image.count, 105)
-        XCTAssertEqual(image[30], 0) // Right deck FX1: no feedback, no light.
-        XCTAssertEqual(image[43], 0) // Right deck Sync: inactive is dark, not dim blue.
+        XCTAssertEqual(image[30], MX2LEDColor.dimUnmapped.byte(lit: false)) // Right FX1
+        XCTAssertEqual(image[43], MX2LEDColor.blue.byte(lit: false))        // Right Sync, dim
+        XCTAssertEqual(image[29], 0)                                        // PLAY: unknown
         for index in 60..<73 { XCTAssertEqual(image[index], 0) }
     }
 
@@ -89,6 +90,253 @@ final class MX2NativeTests: XCTestCase {
             "/Syndicate/Mixer/CH1/Cue", "/Syndicate/Mixer/CH1/Cue"
         ])
         XCTAssertEqual(messages.map(\.integer), [1, 0, 1, 0])
+    }
+
+    @MainActor
+    func testKeyLockAndFluxSendTrackedSwitchStatesPerDeck() {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        for control in [MX2Control.keyLock(.left), .flux(.left)] {
+            controller.handle(.button(control, pressed: true))
+            controller.handle(.button(control, pressed: false))
+            controller.handle(.button(control, pressed: true))
+            controller.handle(.button(control, pressed: false))
+        }
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/1/PitchPreserve", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/1/PitchPreserve", integer: 0),
+            OSCMessage(address: "/Syndicate/Deck/1/CueSlip", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/1/CueSlip", integer: 0)
+        ])
+
+        messages.removeAll()
+        controller.handle(.button(.keyLock(.right), pressed: true))
+        controller.handle(.button(.flux(.right), pressed: true))
+        controller.mapping.firstDeck = 3
+        controller.handle(.button(.keyLock(.right), pressed: true))
+        controller.handle(.button(.flux(.right), pressed: true))
+        controller.mapping.firstDeck = 1
+        controller.handle(.button(.keyLock(.right), pressed: true))
+        controller.handle(.button(.flux(.right), pressed: true))
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/2/PitchPreserve", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/2/CueSlip", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/4/PitchPreserve", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/4/CueSlip", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/2/PitchPreserve", integer: 0),
+            OSCMessage(address: "/Syndicate/Deck/2/CueSlip", integer: 0)
+        ])
+    }
+
+    func testPatternPadsSelectZeroBasedSamplerLanesOnPressOnly() {
+        var mapping = MX2Mapping()
+        for firstDeck in [1, 3] {
+            mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                for pad in 1...8 {
+                    let deck = firstDeck + side.rawValue
+                    XCTAssertEqual(mapping.route(.button(.pad(side, pad), pressed: true),
+                                                 bank: [.pattern, .pattern], shift: [false, false],
+                                                 jogMode: [false, false]),
+                                   [OSCMessage(address: "/Syndicate/Deck/\(deck)/Sampler/Lane",
+                                               integer: Int32(pad - 1))])
+                    XCTAssertTrue(mapping.route(.button(.pad(side, pad), pressed: false),
+                                                bank: [.pattern, .pattern], shift: [false, false],
+                                                jogMode: [false, false]).isEmpty)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testShiftPatternPadsToggleLaneMuteWithoutSelectingOrTriggering() {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        for side in [MX2Side.left, .right] {
+            controller.handle(.button(.bank(side, .pattern), pressed: true))
+            controller.handle(.button(.shift(side), pressed: true))
+        }
+        for (firstDeck, muted) in [(1, Float(1)), (3, Float(1)), (1, Float(0))] {
+            controller.mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                for pad in 1...8 {
+                    messages.removeAll()
+                    controller.handle(.button(.pad(side, pad), pressed: true))
+                    controller.handle(.button(.pad(side, pad), pressed: false))
+                    // First visit mutes; returning to the first pair unmutes.
+                    XCTAssertEqual(messages, [OSCMessage(
+                        address: "/Syndicate/Deck/\(firstDeck + side.rawValue)/Sampler/LaneSet",
+                        arguments: [.int(Int32(pad)), .string("Mute"), .float(muted)])])
+                }
+            }
+        }
+    }
+
+    func testStemsBankDoesNotPretendFXMacrosAreStemControls() {
+        let mapping = MX2Mapping()
+        for side in [MX2Side.left, .right] {
+            for pad in 1...8 {
+                for shifted in [false, true] {
+                    for pressed in [false, true] {
+                        XCTAssertTrue(mapping.route(.button(.pad(side, pad), pressed: pressed),
+                                                    bank: [.stems, .stems], shift: [shifted, shifted],
+                                                    jogMode: [false, false]).isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testHeldControlsReleaseTheirOriginalRouteAfterBankShiftAndDeckChanges() {
+        let cases: [(MX2Native.MX2Control, MX2PadBank, String, [BridgeCore.OSCArgument])] = [
+            (.pad(.left, 3), .hotcues, "/Syndicate/Deck/1/HotCue", [.int(3), .int(0)]),
+            (.pad(.left, 8), .loops, "/Syndicate/Deck/1/SlipLoop/Four", [.int(0)]),
+            (.cue(.left), .hotcues, "/Syndicate/Deck/1/Cue", [.int(0)]),
+            (.reverse(.left), .hotcues, "/Syndicate/Deck/1/Reverse", [.int(0)])
+        ]
+        for (control, bank, address, arguments) in cases {
+            let controller = MX2NativeController()
+            controller.banks = [bank, .hotcues]
+            var messages: [BridgeCore.OSCMessage] = []
+            controller.onControl = { messages.append($0) }
+            controller.handle(.button(control, pressed: true))
+            XCTAssertEqual(messages.first?.address, address)
+            controller.handle(.button(.shift(.left), pressed: true))
+            controller.handle(.button(.bank(.left, .pattern), pressed: true))
+            controller.mapping.firstDeck = 3
+            messages.removeAll()
+            controller.handle(.button(control, pressed: false))
+            XCTAssertEqual(messages, [OSCMessage(address: address, arguments: arguments)])
+        }
+    }
+
+    @MainActor
+    func testNonHoldingPadPressNeverGainsAReleaseWhenBankOrShiftChanges() {
+        for bank in [MX2PadBank.hotcues, .pattern, .stems] {
+            let controller = MX2NativeController()
+            controller.banks = [bank, .hotcues]
+            controller.shift = [true, false]
+            var messages: [BridgeCore.OSCMessage] = []
+            controller.onControl = { messages.append($0) }
+            controller.handle(.button(.pad(.left, 2), pressed: true))
+            controller.shift = [false, false]
+            controller.banks = [.loops, .hotcues]
+            messages.removeAll()
+            controller.handle(.button(.pad(.left, 2), pressed: false))
+            XCTAssertTrue(messages.isEmpty)
+        }
+    }
+
+    @MainActor
+    func testJogBendReleaseStaysOnOriginalDeckAfterPairChanges() async throws {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        controller.handle(.jog(.right, delta: -12))
+        controller.mapping.firstDeck = 3
+        try await Task.sleep(for: .milliseconds(160))
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/2/PhaseBend", integer: -1),
+            OSCMessage(address: "/Syndicate/Deck/2/PhaseBend", integer: 0)
+        ])
+    }
+
+    @MainActor
+    func testJogZeroSendsOneReleaseAndCancelsPendingRelease() async throws {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        controller.handle(.jog(.left, delta: 12))
+        controller.mapping.firstDeck = 3
+        controller.handle(.jog(.left, delta: 0))
+        try await Task.sleep(for: .milliseconds(160))
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/1/PhaseBend", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/1/PhaseBend", integer: 0)
+        ])
+    }
+
+    @MainActor
+    func testNewJogDeckReleasesOldBendBeforeStartingNewBend() async throws {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        controller.handle(.jog(.left, delta: 12))
+        controller.mapping.firstDeck = 3
+        controller.handle(.jog(.left, delta: -12))
+        try await Task.sleep(for: .milliseconds(160))
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/1/PhaseBend", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/1/PhaseBend", integer: 0),
+            OSCMessage(address: "/Syndicate/Deck/3/PhaseBend", integer: -1),
+            OSCMessage(address: "/Syndicate/Deck/3/PhaseBend", integer: 0)
+        ])
+    }
+
+    func testAllHotcueAndLoopPadsKeepDocumentedArgumentsOnBothDeckPairs() {
+        var mapping = MX2Mapping()
+        let sizes = ["ThirtySecond", "Sixteenth", "Eighth", "Quarter", "Half", "One", "Two", "Four"]
+        for firstDeck in [1, 3] {
+            mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                let root = "/Syndicate/Deck/\(firstDeck + side.rawValue)"
+                for pad in 1...8 {
+                    for pressed in [true, false] {
+                        for shifted in [false, true] {
+                            let event = MX2InputEvent.button(.pad(side, pad), pressed: pressed)
+                            let hotcues = mapping.route(event, bank: [.hotcues, .hotcues],
+                                                        shift: [shifted, shifted], jogMode: [false, false])
+                            let expected: [BridgeCore.OSCMessage] = shifted
+                                ? (pressed ? [OSCMessage(address: root + "/SetCueLoop", integer: Int32(pad))] : [])
+                                : [OSCMessage(address: root + "/HotCue",
+                                              arguments: [.int(Int32(pad)), .int(pressed ? 1 : 0)])]
+                            XCTAssertEqual(hotcues, expected)
+                            XCTAssertEqual(mapping.route(event, bank: [.loops, .loops],
+                                                         shift: [shifted, shifted], jogMode: [false, false]),
+                                           [OSCMessage(address: root + "/SlipLoop/" + sizes[pad - 1],
+                                                       integer: pressed ? 1 : 0)])
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func testAllFourBankButtonsAreLocalAndIndependent() {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        for bank in MX2PadBank.allCases {
+            controller.handle(.button(.bank(.left, bank), pressed: true))
+            controller.handle(.button(.bank(.left, bank), pressed: false))
+            XCTAssertEqual(controller.banks, [bank, .hotcues])
+        }
+        controller.handle(.button(.bank(.right, .pattern), pressed: true))
+        XCTAssertEqual(controller.banks, [.loops, .pattern])
+        XCTAssertTrue(messages.isEmpty)
+        controller.handle(.button(.pad(.left, 1), pressed: true))
+        controller.handle(.button(.pad(.right, 8), pressed: true))
+        XCTAssertEqual(messages, [
+            OSCMessage(address: "/Syndicate/Deck/1/SlipLoop/ThirtySecond", integer: 1),
+            OSCMessage(address: "/Syndicate/Deck/2/Sampler/Lane", integer: 7)
+        ])
+    }
+
+    func testInvalidPadIndicesNeverSendMessagesInAnyBank() {
+        let mapping = MX2Mapping()
+        for bank in MX2PadBank.allCases {
+            for pad in [-1, 0, 9] {
+                for pressed in [false, true] {
+                    XCTAssertTrue(mapping.route(.button(.pad(.left, pad), pressed: pressed),
+                                                bank: [bank, bank], shift: [true, true],
+                                                jogMode: [false, false]).isEmpty)
+                }
+            }
+        }
     }
 
     func testTransportAndHotCueUseCurrentDeckPair() {
