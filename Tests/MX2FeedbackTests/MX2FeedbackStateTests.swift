@@ -145,12 +145,22 @@ final class MX2FeedbackStateTests: XCTestCase {
         })
         XCTAssertFalse(state[deck: 1].cues[0].pressed)
         state.apply(oscMessage("/Syndicate/Deck/1/CuePress") { builder in
-            builder.int(0); builder.int(1)
+            builder.int(1); builder.int(1)
         })
         XCTAssertTrue(state[deck: 1].cues[0].pressed)
         state.apply(oscMessage("/Syndicate/Deck/1/CuePress") { builder in
-            builder.int(0); builder.int(0)
+            builder.int(1); builder.int(0)
         })
+        XCTAssertFalse(state[deck: 1].cues[0].pressed)
+    }
+
+    // `CuePress` carries `i cue 1-8`, not a 0-based index: cue 8 is real and cue 0
+    // is not a cue at all. Getting this wrong silently shifted every pad by one.
+    func testCueEightIsValidAndZeroIsNotACue() {
+        var state = MX2FeedbackState()
+        state.apply(oscMessage("/Syndicate/Deck/1/CuePress") { $0.int(8); $0.int(1) })
+        XCTAssertTrue(state[deck: 1].cues[7].pressed)
+        state.apply(oscMessage("/Syndicate/Deck/1/CuePress") { $0.int(0); $0.int(1) })
         XCTAssertFalse(state[deck: 1].cues[0].pressed)
     }
 
@@ -158,8 +168,9 @@ final class MX2FeedbackStateTests: XCTestCase {
 
     func testSamplerStepIsStored() {
         var state = MX2FeedbackState()
-        state.apply(oscMessage("/Syndicate/Sampler/CurrentStep") { $0.int(5) })
-        XCTAssertEqual(state.samplerStep, 5)
+        state.apply(oscMessage("/Syndicate/Deck/2/Sampler/CurrentStep") { $0.int(5) })
+        XCTAssertEqual(state[deck: 2].samplerStep, 5)
+        XCTAssertEqual(state[deck: 1].samplerStep, 0)
     }
 
     func testMixerChannelMetersAreStoredPerChannel() {

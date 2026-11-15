@@ -295,7 +295,7 @@ final class MX2LEDRendererTests: XCTestCase {
 
     func testPatternBankIsRunningLightFromSamplerStep() {
         var state = MX2FeedbackState()
-        state.samplerStep = 3
+        state[deck: 1].samplerStep = 3
         let frame = renderer.render(state: state, context: MX2RenderContext(padMode: .pattern))
         for (index, control) in MX2Control.pads.enumerated() {
             let expected = index == 3
@@ -307,7 +307,7 @@ final class MX2LEDRendererTests: XCTestCase {
 
     func testPatternBankWrapsOutOfRangeSamplerSteps() {
         var state = MX2FeedbackState()
-        state.samplerStep = 9
+        state[deck: 1].samplerStep = 9
         let frame = renderer.render(state: state, context: MX2RenderContext(padMode: .pattern))
         XCTAssertEqual(control(frame, deck: 1, .pad2), MX2LEDColor.orange.byte(lit: true))
     }

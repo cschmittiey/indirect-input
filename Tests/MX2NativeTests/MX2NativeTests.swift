@@ -5,20 +5,22 @@ import MX2Feedback
 
 final class MX2NativeTests: XCTestCase {
     func testInitialHIDSnapshotDoesNotFireControls() {
+        // `decode` drops the report ID, so payload byte N lives at `report[N + 1]`.
+        // The decoder emits a *bounded* set of events: a button press it noticed and
+        // the browse encoder moving underneath it.
         var decoder = MX2Decoder()
-        // Baseline every report family before asserting a browse delta. The decoder
-        // intentionally shares its first-report initialization across report IDs.
-        var baseline = [UInt8](repeating: 0, count: 15)
-        baseline[0] = 1
-        XCTAssertTrue(decoder.decode(baseline).isEmpty)
-        var report = baseline
-        report[1 + 80 / 8] = 1 << (80 % 8) // Left jog touch held.
-        report[11] = 0x01 // Left browse starts at one.
-        XCTAssertTrue(decoder.decode(report).isEmpty)
-        report[11] = 0x00 // Only the browse value changes.
-        XCTAssertEqual(decoder.decode(report), [
-            .encoder(.browse(.left), delta: -1)
-        ])
+        var report = [UInt8](repeating: 0, count: 15)
+        report[0] = 1
+        XCTAssertEqual(decoder.decode(report), [], "an all-zero first report must only baseline")
+        // Button 80 (left jog touch) held: first report baselines, so silence.
+        report[1 + 80 / 8] = 1 << (80 % 8)
+        XCTAssertEqual(decoder.decode(report), [.button(.jogTouch(.left), pressed: true)])
+
+        report[12] = 0x01 // Left browse encoder's low nibble moves to one.
+        XCTAssertEqual(decoder.decode(report), [.encoder(.browse(.left), delta: 1)])
+
+        report[12] = 0x00
+        XCTAssertEqual(decoder.decode(report), [.encoder(.browse(.left), delta: -1)])
     }
 
     func testRawCueReportUsesTransportCueNotPlay() {
@@ -60,14 +62,16 @@ final class MX2NativeTests: XCTestCase {
     }
 
     @MainActor
-    func testRestoredRGBLayoutUsesOldOffsetsAndLeavesFilterRegionDark() {
+    func testIdleFeedbackFrameLeavesUnfedControlsDark() {
+        // This test used to assert the static-layout bug: bright orange FX buttons and
+        // a dim blue Sync on an idle controller, which is what made the deck look
+        // broken. With no feedback the frame must be dark apart from the selected
+        // bank indicator, so anything that lights up is genuinely tracked state.
         let client = MX2FeedbackClient()
         let image = client.renderForTesting()
         XCTAssertEqual(image.count, 105)
-        XCTAssertEqual(image[30], 14) // Right deck FX1: old bright orange.
-        XCTAssertEqual(image[43], 44) // Right deck Sync: old dim blue when inactive.
-        for index in 73..<79 { XCTAssertEqual(image[index], 46) }
-        for index in 79..<85 { XCTAssertEqual(image[index], 46) }
+        XCTAssertEqual(image[30], 0) // Right deck FX1: no feedback, no light.
+        XCTAssertEqual(image[43], 0) // Right deck Sync: inactive is dark, not dim blue.
         for index in 60..<73 { XCTAssertEqual(image[index], 0) }
     }
 
@@ -125,21 +129,44 @@ final class MX2NativeTests: XCTestCase {
             arguments: (1...8).flatMap { slot in
                 [.int(Int32(slot)), .string("Cue \(slot)")]
             }).packet)
-        XCTAssertEqual(image[30], 30)
-        for pad in 0..<8 { XCTAssertNotEqual(image[21 + pad], 0) }
+        XCTAssertEqual(image[29], 30) // Left deck is playing; right deck stays stopped.
+        for pad in 0..<8 { XCTAssertNotEqual(image[20 + pad], 0) }
     }
 
 
     func testJogDeltaWrapsAt960() {
+        // Left jog absolute position is a little-endian u32 at payload offset 7,
+        // which is report index 8 once the report ID is dropped.
+        func report(position: UInt32) -> [UInt8] {
+            var bytes = [UInt8](repeating: 0, count: 20)
+            bytes[0] = 3
+            for shift in 0..<4 {
+                bytes[8 + shift] = UInt8((position >> (8 * shift)) & 0xFF)
+            }
+            return bytes
+        }
+
         var decoder = MX2Decoder()
-        var first = [UInt8](repeating: 0, count: 20)
-        first[0] = 3
-        first[7] = 132
-        first[8] = 0x03
-        XCTAssertTrue(decoder.decode(first).isEmpty)
-        var second = first
-        second[7] = 100
-        second[8] = 0
-        XCTAssertEqual(decoder.decode(second), [.jog(.left, delta: 160)])
+        XCTAssertTrue(decoder.decode(report(position: 952)).isEmpty) // Baselines only.
+
+        // 952 -> 100 is 852 backwards, which is nearer +108 forwards on a 960-tick
+        // wheel, so the decoder must report the short way round.
+        XCTAssertEqual(decoder.decode(report(position: 100)), [.jog(.left, delta: 108)])
+    }
+
+    func testJogDeltaTakesTheShortWayForSmallMoves() {
+        func report(position: UInt32) -> [UInt8] {
+            var bytes = [UInt8](repeating: 0, count: 20)
+            bytes[0] = 3
+            for shift in 0..<4 {
+                bytes[8 + shift] = UInt8((position >> (8 * shift)) & 0xFF)
+            }
+            return bytes
+        }
+
+        var decoder = MX2Decoder()
+        _ = decoder.decode(report(position: 500))
+        XCTAssertEqual(decoder.decode(report(position: 501)), [.jog(.left, delta: 1)])
+        XCTAssertEqual(decoder.decode(report(position: 500)), [.jog(.left, delta: -1)])
     }
 }

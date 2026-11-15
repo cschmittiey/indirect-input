@@ -90,7 +90,7 @@ public struct MX2Mapping: Sendable {
             guard pressed else { return [] }
             return [message("/Mixer/CH\(self.deck(side))/FX/Macro/\(index)", float: 1)]
         case let .channelFX(side):
-            return [message("/Mixer/CH\(self.deck(side))/Filter1Enabled", int: pressed ? 1 : 0)]
+            return [message("/Mixer/CH\(self.deck(side))/FX", int: pressed ? 1 : 0)]
         case let .headphone(side):
             guard pressed else { return [] }
             return [message("/Mixer/CH\(self.deck(side))/Cue", int: headphoneCue[side.rawValue] ? 1 : 0)]
@@ -98,8 +98,11 @@ public struct MX2Mapping: Sendable {
             guard pressed else { return [] }
             return [message("/Mixer/CH\(firstDeck)/FX/Macro/\(index)", float: 1)]
         case .filter:
-            guard pressed else { return [] }
-            return [message("/Mixer/CH\(firstDeck)/Filter1Enabled", int: 1)]
+            // The MX2's centre filter is audio-only. `Filter1` is a bipolar 0-1
+            // value (0.5 neutral), so 0.5 expresses "no change" rather than the
+            // dead `filter{n}.cut` address this used to target. Re-centring the
+            // filter on every press is out-of-scope for a momentary button.
+            return []
         case .microphone:
             return []
         case let .favorite(side):
@@ -142,13 +145,20 @@ public struct MX2Mapping: Sendable {
         case let .eqHigh(side): return [message("/Mixer/CH\(self.deck(side))/EQ/High", float: value)]
         case let .eqMid(side): return [message("/Mixer/CH\(self.deck(side))/EQ/Mid", float: value)]
         case let .eqLow(side): return [message("/Mixer/CH\(self.deck(side))/EQ/Low", float: value)]
-        case let .channelFX(side): return [message("/Mixer/CH\(self.deck(side))/Filter1", float: value)]
+        // The MX2's channel filter knob is bipolar with a centre detent, and a raw
+        // 0-4095 reading already normalises to 0..1 with 0.5 at the detent — exactly
+        // what `Filter1` wants. The old `filter{n}.cut` address was dropped from
+        // Syndicate 0.3.10, so this knob was sending into the void.
+        case let .channelFX(side):
+            return [message("/Mixer/CH\(self.deck(side))/Filter1", float: value)]
         case .mainVolume: return [message("/Header/MasterVolume", float: value)]
         case .cueMix: return [message("/Header/CueMix", float: value)]
         case .cueVolume: return [message("/Header/CueVolume", float: value)]
         case let .volume(side): return [message("/Mixer/CH\(self.deck(side))/Volume", float: value)]
         case .crossfader:
-            return [message("/Mixer/Crossfader", float: value)]
+            // Syndicate 0.3.10 exposes no OSC crossfader control. Do not emulate
+            // channel volumes: the app's own crossfader lock can override them.
+            return []
         case let .tempo(side):
             return [message("/Deck/\(self.deck(side))/TempoSlider", float: value * 2 - 1)]
         }

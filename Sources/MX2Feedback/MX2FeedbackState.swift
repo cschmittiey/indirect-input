@@ -73,6 +73,8 @@ public struct MX2DeckState: Equatable, Sendable {
     public var cueSlip = false
     public var pitchPreserve = false
     public var tempoSlider: Double = 0
+    public var samplerStep = 0
+    public var playerType = "track"
     public var cues: [MX2Cue] = Array(repeating: MX2Cue(), count: MX2FeedbackState.cueCount)
 
     public init() {}
@@ -194,6 +196,14 @@ public struct MX2FeedbackState: Equatable, Sendable {
             }
         }
 
+        // /Syndicate/Deck/{n}/Sampler/CurrentStep is per deck.
+        if components.count == 5, components[1] == "Deck",
+           let deck = Int(components[2]), Self.validDeck(deck),
+           components[3] == "Sampler", components[4] == "CurrentStep" {
+            guard let step = message.int(0) else { return .ignored }
+            return mutateDeck(deck) { $0.samplerStep = step }
+        }
+
         // /Syndicate/Deck/{n}/...
         guard components.count >= 3, components[1] == "Deck",
               let deck = Int(components[2]), Self.validDeck(deck) else { return .ignored }
@@ -205,12 +215,15 @@ public struct MX2FeedbackState: Equatable, Sendable {
                 guard !cues.isEmpty else { return .ignored }
                 return mutateDeck(deck) { $0.cues = cues }
             case "CuePress":
-                guard let index = message.int(0), (0..<Self.cueCount).contains(index),
+                guard let cue = message.int(0), (1...Self.cueCount).contains(cue),
                       let pressed = message.flag(1) else { return .ignored }
-                return mutateDeck(deck) { $0.cues[index].pressed = pressed }
+                return mutateDeck(deck) { $0.cues[cue - 1].pressed = pressed }
             case "CueActive", "CueMomentary", "CuePreview":
                 guard let value = message.flag(0) else { return .ignored }
                 return mutateDeck(deck) { $0.cueActive = value }
+            case "PlayerType":
+                guard let type = message.string(0) else { return .ignored }
+                return mutateDeck(deck) { $0.playerType = type }
             case "Playing":
                 guard let value = message.flag(0) else { return .ignored }
                 return mutateDeck(deck) { $0.playing = value }

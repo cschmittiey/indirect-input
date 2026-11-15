@@ -331,19 +331,18 @@ public struct MX2LEDRenderer: Sendable {
             }
         }
 
-        // Preserve the established MX2 layout even before feedback arrives.
-        for control in [MX2Control.fx1, .fx2, .fx3, .fx4] {
-            set(control, .orange, .lit)
+        // Indicators with no feedback source stay dark. Filling them from a
+        // hardcoded palette made an idle controller look like it had state it did
+        // not have — red FX buttons and a white Shift that never went out — and it
+        // buried the LEDs that do track real feedback.
+        for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
+                        .preview, .view, .flux, .reverse, .turntable, .jog] {
+            set(control, .off, .off)
         }
-        for control in [MX2Control.favorite, .add, .preview, .view, .turntable, .jog] {
-            set(control, .blue, .lit)
-        }
-        set(.flux, .red, deck.cueSlip ? .lit : .dim)
-        set(.reverse, .red, .dim)
-        set(.shift, .white, context.shiftPressed ? .lit : .dim)
-        set(.sync, .blue, deck.sync ? .lit : .dim)
-        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .dim)
-        set(.keylock, .blue, deck.pitchPreserve ? .lit : .dim)
+        set(.shift, .white, context.shiftPressed ? .lit : .off)
+        set(.sync, .blue, deck.sync ? .lit : .off)
+        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .off)
+        set(.keylock, .blue, deck.pitchPreserve ? .lit : .off)
         let previewActive = context.cueActive[physicalDeck] ?? deck.cueActive
         set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .off))
 
@@ -360,10 +359,10 @@ public struct MX2LEDRenderer: Sendable {
 
         // Pad-bank indicators: the active bank is lit, the rest are dark. A dim code
         // would make an empty state glow, and the bank is only meaningful when active.
-        set(.hotcues, .blue, context.padMode == .hotcues ? .lit : .dim)
-        set(.stems, .purple, context.padMode == .stems ? .lit : .dim)
-        set(.pattern, .orange, context.padMode == .pattern ? .lit : .dim)
-        set(.loops, .green, context.padMode == .loops ? .lit : .dim)
+        set(.hotcues, .red, context.padMode == .hotcues ? .lit : .off)
+        set(.stems, .purple, context.padMode == .stems ? .lit : .off)
+        set(.pattern, .orange, context.padMode == .pattern ? .lit : .off)
+        set(.loops, .green, context.padMode == .loops ? .lit : .off)
 
         let held = context.heldPads[physicalDeck] ?? []
         for (index, control) in MX2Control.pads.enumerated() {
@@ -399,7 +398,7 @@ public struct MX2LEDRenderer: Sendable {
 
         case .pattern:
             // `CurrentStep` drives a running light; the rest of the bank sits dim.
-            let step = ((state.samplerStep % MX2Control.pads.count)
+            let step = ((deck.samplerStep % MX2Control.pads.count)
                         + MX2Control.pads.count) % MX2Control.pads.count
             return (.orange, !preview && step == index ? .lit : .dim)
         }
@@ -410,12 +409,18 @@ public struct MX2LEDRenderer: Sendable {
     private func renderUndershell(deck: MX2DeckState, physicalDeck: Int,
                                   into frame: inout [UInt8]) {
         let base = MX2LEDLayout.undershellBase(physicalDeck)
+        // The glow restates deck transport: pending, playing, loaded, or dark. A
+        // constant blue was the bug that made both decks look permanently active.
         let color: MX2LEDColor
         let lit: Bool
-        if deck.loop {
+        if deck.playPending {
+            (color, lit) = (.yellow, true)
+        } else if deck.playing {
             (color, lit) = (.green, true)
+        } else if deck.loaded {
+            (color, lit) = (.green, false)
         } else {
-            (color, lit) = (.blue, true)
+            (color, lit) = (.off, false)
         }
         for offset in 0..<MX2LEDLayout.undershellCount {
             guard let index = MX2LEDLayout.byteIndex(id: base + offset) else { continue }
