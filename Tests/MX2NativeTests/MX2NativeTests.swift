@@ -21,6 +21,22 @@ final class MX2NativeTests: XCTestCase {
         ])
     }
 
+    func testRawCueReportUsesTransportCueNotPlay() {
+        var decoder = MX2Decoder()
+        let idle = [UInt8](repeating: 0, count: 15)
+        XCTAssertTrue(decoder.decode([1] + idle.dropFirst()).isEmpty)
+        var pressed = idle
+        pressed[0] = 1
+        pressed[4] = 0x10 // Traktor MX2 descriptor: left Cue is button ID 28.
+        XCTAssertEqual(decoder.decode(pressed), [.button(.cue(.left), pressed: true)])
+        var rightDecoder = MX2Decoder()
+        XCTAssertTrue(rightDecoder.decode([1] + idle.dropFirst()).isEmpty)
+        var right = idle
+        right[0] = 1
+        right[8] = 0x04 // Traktor MX2 descriptor: right Cue is button ID 58.
+        XCTAssertEqual(rightDecoder.decode(right), [.button(.cue(.right), pressed: true)])
+    }
+
     func testJogReportDoesNotReleaseButtonBeforeFirstButtonReport() {
         var decoder = MX2Decoder()
         var jog = [UInt8](repeating: 0, count: 20)
@@ -28,9 +44,9 @@ final class MX2NativeTests: XCTestCase {
         XCTAssertTrue(decoder.decode(jog).isEmpty)
         var buttons = [UInt8](repeating: 0, count: 15)
         buttons[0] = 1
-        buttons[1 + 28 / 8] = 1 << (28 % 8)
+        buttons[1 + 29 / 8] = 1 << (29 % 8)
         XCTAssertTrue(decoder.decode(buttons).isEmpty)
-        buttons[1 + 28 / 8] = 0
+        buttons[1 + 29 / 8] = 0
         XCTAssertEqual(decoder.decode(buttons), [.button(.cue(.left), pressed: false)])
     }
 
