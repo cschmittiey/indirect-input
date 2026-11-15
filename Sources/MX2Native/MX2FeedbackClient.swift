@@ -90,9 +90,21 @@ public final class MX2FeedbackClient {
             for offset in 0..<6 { combined[underBase + offset] = frame[underBase + offset] }
             let meterBase = physical == 1 ? 86 : 95
             for offset in 0..<9 { combined[meterBase + offset] = frame[meterBase + offset] }
-            // Keep the previous mixer/filter layout. Do not invent extra lights
-            // while the feedback mapping is still being validated.
         }
+
+        // The mixer band (lamps 61-73) is global, not per-deck, so it must be copied
+        // once - outside the per-deck loop. It was previously never copied at all, so
+        // renderMixer would populate it and this function would silently drop it,
+        // leaving the mixer dark.
+        let mixerContext = MX2RenderContext(
+            headphoneCue: [1: headphoneCue[0], 2: headphoneCue[1]]
+        )
+        let mixerFrame = renderer.render(state: state, context: mixerContext)
+        for id in MX2MixerLamp.first..<(MX2MixerLamp.first + MX2MixerLamp.count) {
+            guard let index = MX2LEDLayout.byteIndex(id: id) else { continue }
+            combined[index] = mixerFrame[index]
+        }
+
         onRGB?(combined)
     }
 }

@@ -212,21 +212,61 @@ final class MX2LEDRendererTests: XCTestCase {
         XCTAssertEqual(control(active, deck: 1, .cue), 0)
     }
 
-    func testFilterAvailabilityDoesNotPretendToBeAnActiveEffectAtUnverifiedLEDIDs() {
+    func testFilterAvailabilityDoesNotPretendToBeAnActiveEffect() {
+        // Filter1Enabled means "the knob exists", not "a filter is engaged". The mixer
+        // lamps at 61-73 are now populated (they were forced dark), but availability
+        // must never make one go BRIGHT. Dim is the honest representation of "control
+        // present, state unknown".
         var state = MX2FeedbackState()
         state.filterEnabled = [1: true, 2: true, 3: true, 4: true]
-        let frame = renderer.render(state: state)
+        let frame = renderer.render(state: state, context: MX2RenderContext())
         for id in 61...73 {
-            XCTAssertEqual(byte(frame, id: id), 0, "availability is not activation: LED \(id)")
+            XCTAssertNotEqual(byte(frame, id: id) % 4, 2,
+                              "availability is not activation: LED \(id) must not be bright")
+        }
+        // The filter lamp itself specifically must not light from availability.
+        XCTAssertEqual(byte(frame, id: MX2MixerLamp.forButton(72)!), MX2LEDColor.blue.byte(lit: false))
+    }
+
+    func testMixerLampsCoverTheMixerBlockAndOffsetFromButtonIDs() {
+        // Measured: mixer buttons are bits 60-73 and their lamps are IDs 61-73, offset
+        // by exactly +1. Button 73 (microphone) has no lamp in this block.
+        XCTAssertEqual(MX2MixerLamp.forButton(60), 61)
+        XCTAssertEqual(MX2MixerLamp.forButton(63), 64)
+        XCTAssertEqual(MX2MixerLamp.forButton(67), 68)
+        XCTAssertEqual(MX2MixerLamp.forButton(72), 73)
+        XCTAssertNil(MX2MixerLamp.forButton(73))
+        XCTAssertNil(MX2MixerLamp.forButton(59))
+
+        // With nothing cued, every mixer lamp is populated but dim - never bright.
+        let frame = renderer.render(state: MX2FeedbackState(), context: MX2RenderContext())
+        for id in 61...73 {
+            let value = byte(frame, id: id)
+            XCTAssertNotEqual(value, 0, "mixer lamp \(id) should be visible")
+            XCTAssertEqual(value % 4, 0, "mixer lamp \(id) must be dim")
         }
     }
 
-    func testHeadphoneCueTurnsCompletelyOff() {
+    func testHeadphoneCueLampsUseTheShiftedMixerIDs() {
+        let on = renderer.render(state: MX2FeedbackState(),
+                                 context: MX2RenderContext(headphoneCue: [1: true]))
+        // Button 63 (headphone left) -> lamp 64.
+        XCTAssertEqual(byte(on, id: 64), MX2LEDColor.white.byte(lit: true))
+        let off = renderer.render(state: MX2FeedbackState(),
+                                  context: MX2RenderContext(headphoneCue: [1: false]))
+        XCTAssertEqual(byte(off, id: 64), MX2LEDColor.white.byte(lit: false))
+    }
+
+    func testHeadphoneCueDimsRatherThanVanishesWhenOff() {
+        // Headphone Cue used to go fully dark when off. With the mixer block now
+        // populated it sits dim white instead, so the button stays findable - the same
+        // treatment as SYNC/MASTER/KEYLOCK. Lamp 64 is button 63 + 1.
         let state = MX2FeedbackState()
         let on = renderer.render(state: state, context: MX2RenderContext(headphoneCue: [1: true]))
         XCTAssertEqual(byte(on, id: 64), MX2LEDColor.white.byte(lit: true))
         let off = renderer.render(state: state, context: MX2RenderContext(headphoneCue: [1: false]))
-        XCTAssertEqual(byte(off, id: 64), 0)
+        XCTAssertEqual(byte(off, id: 64), MX2LEDColor.white.byte(lit: false))
+        XCTAssertEqual(byte(off, id: 64) % 4, 0, "must be dim, not bright")
     }
 
     // MARK: Toggles
@@ -516,10 +556,13 @@ final class MX2LEDRendererTests: XCTestCase {
         state.meters[2] = 1
         state[deck: 1].cues[0] = MX2Cue(color: 1, pressed: true)
         let frame = renderer.render(state: state, context: .init())
-        let controlledMixerIDs: Set<Int> = [62, 64, 66, 68]
-        for id in 61...73 where !controlledMixerIDs.contains(id) {
-            XCTAssertEqual(byte(frame, id: id), 0, "id \(id)")
+        // The mixer block 61-73 is now fully populated: buttons 60-72 map to lamps
+        // 61-73 at a +1 offset. Nothing there may be bright without feedback, but
+        // every lamp is present and dim.
+        for id in 61...73 {
+            XCTAssertEqual(byte(frame, id: id) % 4, 0, "id \(id) must be dim")
         }
+        // Bytes outside every defined block stay untouched.
         XCTAssertEqual(byte(frame, id: 86), 0)
         XCTAssertEqual(byte(frame, id: 105), 0)
     }

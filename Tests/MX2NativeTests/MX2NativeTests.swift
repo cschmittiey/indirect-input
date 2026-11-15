@@ -73,7 +73,11 @@ final class MX2NativeTests: XCTestCase {
         XCTAssertEqual(image[30], MX2LEDColor.dimUnmapped.byte(lit: false)) // Right FX1
         XCTAssertEqual(image[43], MX2LEDColor.blue.byte(lit: false))        // Right Sync, dim
         XCTAssertEqual(image[29], 0)                                        // PLAY: unknown
-        for index in 60..<73 { XCTAssertEqual(image[index], 0) }
+        for index in 60..<73 {
+            // Mixer lamps are now populated (dim), never bright without feedback.
+            XCTAssertNotEqual(image[index] % 4, 2, "mixer index \(index) must not be bright")
+            XCTAssertNotEqual(image[index], 0, "mixer index \(index) should be visible")
+        }
     }
 
     @MainActor

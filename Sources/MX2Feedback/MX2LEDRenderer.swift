@@ -251,6 +251,28 @@ public struct MX2RenderContext: Equatable, Sendable {
     }
 }
 
+/// Mixer section lamp IDs.
+///
+/// The mixer's 13 lamps occupy IDs 61-73, one per button, and they are offset by
+/// exactly +1 from the corresponding BUTTON ids (button 60 -> lamp 61). Both facts
+/// were measured: the mixer buttons were identified by pressing them (bits
+/// 60-73), and the lamp block was identified by lighting 61-73 and having the
+/// owner confirm the whole mixer section came alive.
+///
+/// This block used to be forced to 0 because nobody knew what lived there, which is
+/// why the mixer looked broken. Mixer lamp IDs are a DIFFERENT numbering space from
+/// deck lamps - never derive one from the other.
+public enum MX2MixerLamp {
+    public static let first = 61
+    public static let count = 13
+
+    /// Lamp for a mixer control, given its BUTTON id.
+    public static func forButton(_ buttonID: Int) -> Int? {
+        let id = buttonID + 1
+        return (first..<(first + count)).contains(id) ? id : nil
+    }
+}
+
 // MARK: - Renderer
 
 /// Turns `MX2FeedbackState` into the MX2's 105-byte Native LED frame.
@@ -294,17 +316,31 @@ public struct MX2LEDRenderer: Sendable {
 
     private func renderMixer(state: MX2FeedbackState, context: MX2RenderContext,
                              into frame: inout [UInt8]) {
+        // Buttons 60-72 map to lamps 61-73, one-to-one in order:
+        //   60/61 FX assign L, 62 channel FX L, 63 headphone L,
+        //   64/65 FX assign R, 66 channel FX R, 67 headphone R,
+        //   68-71 global FX 1-4, 72 filter.
+        // The microphone (button 73) has no lamp in this block; 74 onwards is the
+        // under-shell, which is a different thing entirely.
+        func lamp(_ buttonID: Int, _ colour: MX2LEDColor, lit: Bool) {
+            guard let lampID = MX2MixerLamp.forButton(buttonID),
+                  let index = MX2LEDLayout.byteIndex(id: lampID) else { return }
+            frame[index] = lit ? colour.byte(lit: true) : colour.byte(lit: false)
+        }
+
+        // Headphone Cue: the one mixer lamp with real feedback behind it.
         for physicalDeck in 1...2 {
             let deckNumber = context.deckAssignment.deck(for: physicalDeck)
-            let headphoneID = physicalDeck == 1 ? 64 : 68
-            // OSC 14.10 defines Filter1Enabled/Filter2Enabled as knob availability
-            // (currently always 1), not an active filter. Neither has a verified LED
-            // assignment here; do not make an idle mixer appear to have FX engaged.
-            if let index = MX2LEDLayout.byteIndex(id: headphoneID) {
-                let enabled = context.headphoneCue[physicalDeck]
-                    ?? state.headphoneCue[deckNumber] ?? false
-                frame[index] = enabled ? MX2LEDColor.white.byte(lit: true) : 0
-            }
+            let enabled = context.headphoneCue[physicalDeck]
+                ?? state.headphoneCue[deckNumber] ?? false
+            lamp(physicalDeck == 1 ? 63 : 67, .white, lit: enabled)
+        }
+
+        // Everything else sits dim. 0.3.10 exposes no per-control state for these, so
+        // nothing may go bright - dim only, which keeps the mixer looking like a lit
+        // panel without ever claiming activity that is not happening.
+        for buttonID in [60, 61, 62, 64, 65, 66, 68, 69, 70, 71, 72] {
+            lamp(buttonID, .blue, lit: false)
         }
     }
 
