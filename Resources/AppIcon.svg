@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>Indirect Input — a little protocol DI box</title>
+  <!--
+    Design notes.
+
+    Three earlier attempts failed the same way: two concentric circles side by side at
+    "eye height", with anything beneath them, is read as a FACE no matter how the
+    circles are shaded. Pareidolia beats ornament. The fix is the LAYOUT.
+
+    This version is a WIDE horizontal enclosure, which cannot be a face:
+      - one 1/4" jack on the left (unbalanced in)
+      - one XLR-style balanced output on the right
+      - a fader in the middle
+      - cable entering the LEFT edge, not sprouting from the top
+    The left-to-right asymmetry is deliberate; that is what kills the face reading.
+    A DI box is literally the thing that makes an unbalanced signal balanced, so a
+    jack on one side and an XLR on the other is the correct metaphor, not decoration.
+
+    At 16px this resolves to "dark tile, pale wide bar, two dark dots". Nothing here
+    depends on fine detail surviving.
+  -->
+  <defs>
+    <linearGradient id="box" x1="0" y1="0" x2="0.7" y2="1">
+      <stop stop-color="#333A3A"/>
+      <stop offset="1" stop-color="#242929"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F3EDDE"/>
+      <stop offset="1" stop-color="#DAD1BC"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="64" y="72" width="896" height="896" rx="210" fill="#000" opacity="0.18"/>
+  <rect x="64" y="64" width="896" height="896" rx="210" fill="url(#box)"/>
+  <rect x="66" y="66" width="892" height="892" rx="208" fill="none"
+        stroke="#747B76" stroke-opacity="0.35" stroke-width="4"/>
+
+  <g transform="translate(64 64) scale(0.896)">
+    <!-- Input cable. Drawn in two parts so the plug can sit INSIDE the socket hole:
+         the lead comes in first, then the socket is drawn, then the plug barrel is laid
+         over the hole. That ordering is what makes it read as inserted rather than
+         abutting the panel. -->
+    <path d="M26 500 L214 500" fill="none" stroke="#8FD3C7"
+          stroke-width="56" stroke-linecap="round"/>
+
+    <!-- Enclosure. Nudged down so the mass sits optically centred; the cable adds
+         weight on the left, so the plate cannot sit on the midline or it reads high. -->
+    <rect x="176" y="292" width="672" height="352" rx="64" fill="url(#body)"/>
+
+    <!-- LEFT: jack socket. SMALLER and LOWER than the XLR, because equal circles at
+         equal heights is the eye-pair schema and that kept turning this into a face. -->
+    <circle cx="300" cy="500" r="56" fill="#3A3F42"/>
+    <circle cx="300" cy="500" r="36" fill="#101314"/>
+
+    <!-- The plug barrel, drawn LAST so it overlaps the socket rim: the visual cue that
+         the cable is seated in the jack. -->
+    <!-- The plug, drawn LAST so it sits ON TOP of the socket. The metal tip must cover
+         the black hole - if the hole is still visible the cable reads as unplugged,
+         which is the opposite of what this icon is saying. -->
+    <rect x="182" y="466" width="66" height="68" rx="16" fill="#5F6A6D"/>
+    <rect x="238" y="478" width="52" height="44" rx="12" fill="#C9CCCB"/>
+    <rect x="286" y="486" width="30" height="28" rx="8" fill="#E8ECEB"/>
+
+    <!-- MIDDLE: trim knob with a fat pointer tick so it survives at 40px. -->
+    <circle cx="470" cy="460" r="62" fill="#C9CCCB"/>
+    <circle cx="470" cy="460" r="62" fill="none" stroke="#8A8F92" stroke-width="7"/>
+    <rect x="464" y="404" width="12" height="34" rx="6" fill="#242929"/>
+
+    <!-- Pad switch, a small rocker. -->
+    <rect x="572" y="430" width="66" height="58" rx="14" fill="#8A8F92"/>
+    <rect x="577" y="435" width="56" height="24" rx="10" fill="#242929"/>
+
+    <!-- RIGHT: balanced XLR output, larger and higher than the input jack. Three
+         pins thick enough to read down to 40px. -->
+    <circle cx="742" cy="472" r="72" fill="#8A8F92"/>
+    <circle cx="742" cy="472" r="56" fill="#3A3F42"/>
+    <circle cx="742" cy="442" r="11" fill="#C9CCCB"/>
+    <circle cx="723" cy="492" r="11" fill="#C9CCCB"/>
+    <circle cx="761" cy="492" r="11" fill="#C9CCCB"/>
+
+    <!-- Four corner screws, chunky enough not to read as freckles. -->
+    <circle cx="222" cy="342" r="15" fill="#B9B2A2"/>
+    <circle cx="802" cy="342" r="15" fill="#B9B2A2"/>
+    <circle cx="222" cy="594" r="15" fill="#B9B2A2"/>
+    <circle cx="802" cy="594" r="15" fill="#B9B2A2"/>
+
+    <!-- Power LED, off-centre so the layout is not a nose. -->
+    <circle cx="648" cy="338" r="14" fill="#8FD3C7"/>
+  </g>
+</svg>

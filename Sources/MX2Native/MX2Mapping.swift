@@ -21,7 +21,9 @@ public struct MX2Mapping: Sendable {
                       cueSlip: [Int: Bool] = [:],
                       fxEnabled: [Int: Bool] = [:],
                       browserMode: Int = 0,
-                      samplerMute: [Int: [Int: Bool]] = [:]) -> [OSCMessage] {
+                      samplerMute: [Int: [Int: Bool]] = [:],
+                      jogTouch: [Bool] = [false, false],
+                      jogPosition: [Int: Double] = [:]) -> [OSCMessage] {
         switch event {
         case let .button(control, pressed):
             return button(control, pressed: pressed, bank: bank, shift: shift, jogMode: jogMode,
@@ -34,9 +36,29 @@ public struct MX2Mapping: Sendable {
             return encoder(control, delta: delta, shift: shift)
         case let .jog(side, delta):
             let deck = self.deck(side)
+            if shift[side.rawValue] {
+                guard delta != 0 else { return [] }
+                // OSC §14.6: these are Triggers, NOT the WaveformZoom Step route.
+                let direction = delta > 0 ? "In" : "Out"
+                return [message("/Deck/\(deck)/WaveformZoom\(direction)")]
+            }
+            if jogTouch[side.rawValue] {
+                guard delta != 0 else { return [] }
+                // OSC §14.6: absolute track position, quantized when Q is on.
+                // This is seek/scrub, not a vinyl velocity/scratch API.
+                let position = Self.clampedJogPosition(jogPosition[deck, default: 0])
+                return [message("/Deck/\(deck)/WaveformSeek", float: Float(position))]
+            }
+            // OSC §§14.3/14.6: Bend consumes ONLY the sign, not speed/magnitude;
+            // zero releases. Sending larger numbers cannot bend harder.
             let sign: Int32 = delta > 0 ? 1 : delta < 0 ? -1 : 0
             return [message("/Deck/\(deck)/PhaseBend", int: sign)]
         }
+    }
+
+    static func clampedJogPosition(_ position: Double) -> Double {
+        guard position.isFinite else { return 0 }
+        return min(1, max(0, position))
     }
 
     private func button(_ control: MX2Control, pressed: Bool,
@@ -164,7 +186,7 @@ public struct MX2Mapping: Sendable {
         case .turntable, .jogMode, .shift:
             return [] // Local mode state, never an accidental deck action.
         case .jogTouch:
-            return [] // Jog touch is intentionally non-destructive in v1.
+            return [] // Touch gates jog routing; the controller owns its state.
         }
     }
 

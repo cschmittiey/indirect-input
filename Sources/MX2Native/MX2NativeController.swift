@@ -14,6 +14,14 @@ public final class MX2NativeController {
     public var banks: [MX2PadBank] = [.hotcues, .hotcues]
     public var shift: [Bool] = [false, false]
     public var jogMode: [Bool] = [false, false]
+    public private(set) var jogTouch: [Bool] = [false, false]
+    // Absolute normalized seek estimate, independent for each logical deck.
+    // The caller can seed it from Progress feedback (OSC §14.10). Without that
+    // feedback it starts at zero; it cannot infer the host's playback position.
+    public var jogPosition: [Int: Double] = [:]
+    // Mapping sensitivity, not an OSC unit: 960 ticks/revolution, 1% track/turn.
+    // Accumulating full signed deltas makes faster spins seek proportionally more.
+    private let jogTicksPerTrack: Double = 96_000
     public var cueActive: [Bool] = [false, false]
     public var headphoneCue: [Bool] = [false, false]
     // Switch state is keyed by logical deck, so changing deck pairs preserves it.
@@ -44,6 +52,7 @@ public final class MX2NativeController {
         if case let .button(control, pressed) = event {
             switch control {
             case let .shift(side): shift[side.rawValue] = pressed
+            case let .jogTouch(side): jogTouch[side.rawValue] = pressed
             case let .bank(side, bank):
                 if pressed { banks[side.rawValue] = bank }
             case let .turntable(side):
@@ -70,13 +79,24 @@ public final class MX2NativeController {
             default: break
             }
         }
+        if case let .jog(side, delta) = event,
+           jogTouch[side.rawValue], !shift[side.rawValue], delta != 0 {
+            let deck = mapping.deck(side)
+            // Decoder already unwraps the 960-tick platter counter. Do not wrap
+            // the track position: hitting an end clamps and reversal moves away.
+            let position = MX2Mapping.clampedJogPosition(jogPosition[deck, default: 0])
+            jogPosition[deck] = MX2Mapping.clampedJogPosition(position + Double(delta) / jogTicksPerTrack)
+        }
         var messages = route(event)
         if case let .jog(side, delta) = event {
             let index = side.rawValue
             let release = OSCMessage(address: "/Syndicate/Deck/\(mapping.deck(side))/PhaseBend", integer: 0)
             jogReleaseWork[index]?.cancel()
             jogReleaseWork[index] = nil
-            if delta == 0 {
+            if jogTouch[index] || shift[index] {
+                if let previous = jogReleases[index] { messages.insert(previous, at: 0) }
+                jogReleases[index] = nil
+            } else if delta == 0 {
                 messages = [jogReleases[index] ?? release]
                 jogReleases[index] = nil
             } else {
@@ -103,6 +123,19 @@ public final class MX2NativeController {
                 messages = release
             }
         }
+        if case let .button(control, pressed: true) = event {
+            switch control {
+            case let .jogTouch(side), let .shift(side):
+                // A mode transition ends the physical side's held bend immediately,
+                // even if the logical deck has since changed and no jog event follows.
+                let index = side.rawValue
+                jogReleaseWork[index]?.cancel()
+                jogReleaseWork[index] = nil
+                if let previous = jogReleases[index] { messages.insert(previous, at: 0) }
+                jogReleases[index] = nil
+            default: break
+            }
+        }
         for message in messages { onControl?(message) }
         onEvent?(event)
         onStateChange?()
@@ -112,7 +145,8 @@ public final class MX2NativeController {
         mapping.route(event, bank: banks, shift: shift, jogMode: jogMode,
                       cueActive: cueActive, headphoneCue: headphoneCue,
                       pitchPreserve: pitchPreserve, cueSlip: cueSlip, fxEnabled: fxEnabled,
-                      browserMode: browserMode, samplerMute: samplerMute)
+                      browserMode: browserMode, samplerMute: samplerMute,
+                      jogTouch: jogTouch, jogPosition: jogPosition)
     }
 
     public func sendRGB(_ image: [UInt8], force: Bool = false) {

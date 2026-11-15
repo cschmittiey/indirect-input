@@ -25,12 +25,13 @@ final class BridgeModel: ObservableObject {
     @Published var nativeOutput = "No native OSC sent yet"
     @Published var feedbackStatus = "Feedback not started"
     @Published var rgbStatus = "RGB not sent"
-    /// Count of feedback frames rendered, so the UI can prove the link is live.
-    var feedbackRenders = 0
+    /// Count of feedback state updates observed through the client's onState hook.
+    @Published var feedbackRenders = 0
     @Published var deckPair = 1
     @Published var padBank: MX2PadBank = .hotcues
 
-    let midi = MIDIMonitor()
+    // Retained for legacy helpers only: even construction registers a CoreMIDI client.
+    private lazy var midi = MIDIMonitor()
     let osc = OSCSender()
     let native = MX2NativeController()
     let feedback = MX2FeedbackClient()
@@ -53,22 +54,20 @@ final class BridgeModel: ObservableObject {
         }
     }
 
-    init() {
+    /// Previews can render the interface without opening HID or the feedback port.
+    init(startServices: Bool = true) {
         let defaults = UserDefaults.standard
         host = defaults.string(forKey: "OSCHost") ?? host
         port = defaults.string(forKey: "OSCPort") ?? port
-        cc = defaults.string(forKey: "BrowseCC") ?? cc
-        midiChannel = defaults.integer(forKey: "MIDIChannel")
-        shiftedNavigation = defaults.bool(forKey: "ShiftedNavigation")
-        loadOnPress = defaults.bool(forKey: "LoadOnPress")
-        loadDeck = defaults.integer(forKey: "LoadDeck") == 0 ? 1 : defaults.integer(forKey: "LoadDeck")
-        midi.onStatus = { [weak self] connected, status in
-            self?.midiConnected = connected
-            self?.midiStatus = status
+        guard startServices else { return }
+        // The MIDI path is inert pending removal; retain its types and helpers for now.
+        osc.onError = { [weak self] error in
+            self?.lastOutput = "UDP error: \(error)"
+            self?.nativeOutput = "UDP error: \(error)"
         }
-        midi.onMessage = { [weak self] message in self?.handle(message) }
-        osc.onError = { [weak self] error in self?.lastOutput = "UDP error: \(error)" }
-        midi.start()
+        if let savedPort = UInt16(port), savedPort > 0 {
+            osc.configure(host: host, port: savedPort)
+        }
         native.onStatus = { [weak self] status, connected in
             self?.nativeStatus = status
             self?.nativeConnected = connected
@@ -96,13 +95,11 @@ final class BridgeModel: ObservableObject {
         }
         native.onRGB = { [weak self] image, status in
             guard let self else { return }
-            // A previous build wrote LED frames to report 0x80, which IOKit accepts and
-            // reports success for while the deck ignores it entirely. "acknowledged"
-            // therefore proved nothing. Say what is actually verifiable: the frame was
-            // accepted on the correct report ID, and whether it differed from the last.
-            let lit = image.filter { $0 != 0 }.count
+            // Transport acceptance is not proof of visible light. Nonzero bytes
+            // include dim values, so do not describe this count as lit LEDs.
+            let populated = image.filter { $0 != 0 }.count
             self.rgbStatus = status == kIOReturnSuccess
-                ? "RGB frame accepted (\(lit) LEDs lit)"
+                ? "RGB frame accepted · \(populated) nonzero LED values"
                 : "RGB error \(status)"
         }
         native.onStateChange = { [weak self] in
@@ -167,25 +164,33 @@ final class BridgeModel: ObservableObject {
         }
     }
 
+    @Published var connectionNotice = ""
+
     func apply() {
+        let destination = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !destination.isEmpty else {
+            connectionNotice = "Enter an OSC host."
+            return
+        }
         guard let value = UInt16(port), value > 0 else {
-            lastOutput = "Port must be 1–65535"
+            connectionNotice = "Port must be 1–65535."
             return
         }
-        guard let controller = UInt8(cc), controller <= 127 else {
-            lastOutput = "CC must be 0–127"
-            return
-        }
-        osc.configure(host: host, port: value)
+        host = destination
+        osc.configure(host: destination, port: value)
         let defaults = UserDefaults.standard
-        defaults.set(host, forKey: "OSCHost")
+        defaults.set(destination, forKey: "OSCHost")
         defaults.set(port, forKey: "OSCPort")
-        defaults.set(cc, forKey: "BrowseCC")
-        defaults.set(midiChannel, forKey: "MIDIChannel")
-        defaults.set(shiftedNavigation, forKey: "ShiftedNavigation")
-        defaults.set(loadOnPress, forKey: "LoadOnPress")
-        defaults.set(loadDeck, forKey: "LoadDeck")
-        lastOutput = "Ready to send to \(host):\(value)"
+        connectionNotice = "Destination saved · \(destination):\(value)"
+        requestFeedback()
+    }
+
+    func requestFeedback() {
+        osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+    }
+
+    func revealLog() {
+        NSWorkspace.shared.activateFileViewerSelecting([nativeLogURL])
     }
 
     func selectTestDevice() {
@@ -241,167 +246,5 @@ final class BridgeModel: ObservableObject {
     }
 }
 
-struct ContentView: View {
-    @ObservedObject var model: BridgeModel
-    @State private var showSettings = false
-
-    var body: some View {
-        TabView {
-            midiPage.tabItem { Text("MIDI Browse") }
-            nativePage.tabItem { Text("Native + RGB") }
-        }
-        .frame(width: 430)
-    }
-
-    private var midiPage: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("MX2 → SYNDICATE")
-                        .font(.system(size: 19, weight: .bold, design: .monospaced))
-                    Text("Browse encoder · OSC bridge")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Circle()
-                    .fill(model.flash ? Color.green : Color.green.opacity(0.25))
-                    .frame(width: 12, height: 12)
-            }
-
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(model.midiConnected ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(model.midiStatus)
-                    .font(.callout)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("CC \(model.cc)  ·  63 = UP  ·  65 = DOWN")
-                    .font(.system(.body, design: .monospaced))
-                Text("Send to \(model.host):\(model.port)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text(model.lastInput).font(.caption)
-                Text(model.lastOutput)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Text("\(model.eventCount) encoder events")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            DisclosureGroup("Connection settings", isExpanded: $showSettings) {
-                VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("Host", content: { TextField("127.0.0.1", text: $model.host) })
-                    LabeledContent("OSC port", content: { TextField("9090", text: $model.port) })
-                    LabeledContent("Browse CC", content: { TextField("19", text: $model.cc) })
-                    LabeledContent("MIDI channel", content: {
-                        Picker("", selection: $model.midiChannel) {
-                            Text("Both MX2 channels").tag(0)
-                            Text("1 · left").tag(1)
-                            Text("2 · right").tag(2)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    })
-                    Toggle("Shift + wheel navigates the library tree", isOn: $model.shiftedNavigation)
-                    Toggle("Press browse encoder to load", isOn: $model.loadOnPress)
-                    if model.loadOnPress {
-                        Picker("Load into deck", selection: $model.loadDeck) {
-                            ForEach(1...4, id: \.self) { Text("Deck \($0)").tag($0) }
-                        }
-                    }
-                    Text("CC 16 on either MX2 channel is the default. Shift is Note 12; encoder press is Note 30. Enable Syndicate’s OSC input separately.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack {
-                        Button("Use MX2") { model.selectMX2() }
-                        Button("Reconnect") { model.selectTestDevice() }
-                        Spacer()
-                        Button("Apply") { model.apply() }
-                            .keyboardShortcut(.defaultAction)
-                    }
-                }
-                .padding(.top, 10)
-            }
-
-            Text("In Syndicate: Settings → OSC → enable OSC INPUT. No MIDI mapping is needed for this encoder.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            Button("Open Syndicate Settings") { model.openSyndicateSettings() }
-        }
-        .padding(20)
-        .frame(width: 410)
-        .textFieldStyle(.roundedBorder)
-    }
-
-    private var nativePage: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("INDIRECT INPUT")
-                    .font(.system(size: 19, weight: .bold, design: .monospaced))
-                Text("MX2 · Native companion")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                Circle().fill(model.nativeConnected ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(model.nativeStatus).font(.callout)
-            }
-            LabeledContent("Deck pair") {
-                Picker("", selection: Binding(
-                    get: { model.deckPair }, set: { model.setDeckPair($0) })) {
-                    Text("1 + 2").tag(1)
-                    Text("3 + 4").tag(3)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-            }
-            LabeledContent("Pad bank") {
-                Picker("", selection: Binding(
-                    get: { model.padBank }, set: { model.setPadBank($0) })) {
-                    Text("Cues").tag(MX2PadBank.hotcues)
-                    Text("FX").tag(MX2PadBank.stems)
-                    Text("Sampler").tag(MX2PadBank.pattern)
-                    Text("Loops").tag(MX2PadBank.loops)
-                }
-                .labelsHidden()
-            }
-            VStack(alignment: .leading, spacing: 7) {
-                Text(model.nativeInput).font(.caption)
-                Text(model.nativeOutput).font(.caption).foregroundStyle(.secondary)
-                Text(model.feedbackStatus).font(.caption).foregroundStyle(.secondary)
-                Text(model.rgbStatus).font(.caption).foregroundStyle(.secondary)
-                Text("\(model.eventCount) OSC events")
-                    .font(.caption2).foregroundStyle(.secondary)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
-            Text("Native mode gives full HID controls and RGB. MIDI Browse remains available as a fallback. In Syndicate, enable OSC INPUT and subscribe to Playing, Cues, Loop, and Meter feedback on port 9096.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack {
-                Button("Resend feedback") {
-                    model.osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
-                }
-                Button("Open OSC Settings") { model.openSyndicateSettings() }
-            }
-        }
-        .padding(20)
-    }
-}
+// The native-only SwiftUI surface lives in ContentView.swift.
 

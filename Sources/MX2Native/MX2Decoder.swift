@@ -79,16 +79,20 @@ public struct MX2Decoder: Sendable {
 
     public init() {}
 
+    /// The first valid snapshot of each report family only establishes a baseline.
+    /// Wrong lengths and analogue samples outside 0...4095 are rejected without
+    /// emitting events or changing that baseline (including initialization).
     public mutating func decode(_ report: [UInt8]) -> [MX2InputEvent] {
         guard let id = report.first else { return [] }
-        defer { initializedReports.insert(id) }
         let initialized = initializedReports.contains(id)
         switch id {
         case 1 where report.count == 15:
+            initializedReports.insert(id)
             return decodeButtons(Array(report.dropFirst()), initialized: initialized)
         case 2 where report.count == 53:
             return decodeAnalogs(Array(report.dropFirst()), initialized: initialized)
         case 3 where report.count == 20:
+            initializedReports.insert(id)
             return decodeJogs(Array(report.dropFirst()), initialized: initialized)
         default:
             return []
@@ -109,6 +113,9 @@ public struct MX2Decoder: Sendable {
             let old = encoderValues[index]
             guard initialized, nibble != old,
                   let encoder = MX2Encoder(rawValue: index) else { continue }
+            // Absolute modulo-16 counter samples, not relative signed nibbles:
+            // Traktor EncoderHandler::process 0x100d725a8..0x100d725d4 stores the
+            // previous sample and subtracts it before applying these corrections.
             var delta = Int(nibble) - Int(old)
             if delta > 7 { delta -= 16 }
             if delta < -7 { delta += 16 }
@@ -118,18 +125,33 @@ public struct MX2Decoder: Sendable {
         return events
     }
 
+    // Report 2 has no leading counter: the live HID descriptor declares Usage 4
+    // as 21 * 16 bits at payload offset 0, Usage 5 as 5 * 16 bits at offset 42.
+    // Traktor MX2::Device registers PotiHandler(21, 4095) at offset 0 and
+    // FaderHandler(5, 4095, baseID: 21) at 42 (0x100d5fb48..0x100d5fc00).
+    // ControllerDevice::process passes report+1 (0x100d628f4); AnalogControlHandler
+    // reads offset+2*index little-endian (0x100d71f5c..0x100d71f74).
     private mutating func decodeAnalogs(_ data: [UInt8], initialized: Bool) -> [MX2InputEvent] {
+        let values = (0..<26).map { UInt16(data[$0 * 2]) | (UInt16(data[$0 * 2 + 1]) << 8) }
+        // Reject the entire snapshot before emitting or updating any channel. Masking
+        // high bits would conceal a byte-alignment error and corrupt the baseline.
+        guard values.allSatisfy({ $0 <= 4095 }) else { return [] }
+        initializedReports.insert(2)
         var events: [MX2InputEvent] = []
         for index in 0..<26 {
-            let value = UInt16(data[index * 2]) | (UInt16(data[index * 2 + 1]) << 8)
+            let value = values[index]
             guard initialized, analogValues[index] != value else { continue }
             let analog = Self.analogs[index]
             events.append(.analog(analog, value: value))
         }
-        analogValues = (0..<26).map { UInt16(data[$0 * 2]) | (UInt16(data[$0 * 2 + 1]) << 8) }
+        analogValues = values
         return events
     }
 
+    // MX2 JogwheelHandler reads position at handlerOffset(3) + side*8 + 4
+    // (0x100d5f800..0x100d5f82c). Its constructor sets the wrap to 960 at
+    // 0x100d5f510..0x100d5f514. The preceding four bytes are auxiliary timing,
+    // not position. Captured report-3 bytes are retained in MX2DecoderTests.
     private mutating func decodeJogs(_ data: [UInt8], initialized: Bool) -> [MX2InputEvent] {
         var events: [MX2InputEvent] = []
         for side in 0..<2 {
@@ -146,6 +168,9 @@ public struct MX2Decoder: Sendable {
         return events
     }
 
+    // Software-descriptor control identities, not a hardware-verified sweep map.
+    // Use MX2_MAPPING_CAPTURE with MX2DecoderTests.testMappingProbeCapture to
+    // compare each physical control's captured wire index against these claims.
     private static let analogs: [MX2Analog] = [
         .fxKnob(.left, 1), .fxKnob(.left, 2), .fxKnob(.left, 3), .fxKnob(.left, 4),
         .fxKnob(.right, 1), .fxKnob(.right, 2), .fxKnob(.right, 3), .fxKnob(.right, 4),
