@@ -25,6 +25,8 @@ final class BridgeModel: ObservableObject {
     @Published var nativeOutput = "No native OSC sent yet"
     @Published var feedbackStatus = "Feedback not started"
     @Published var rgbStatus = "RGB not sent"
+    /// Count of feedback frames rendered, so the UI can prove the link is live.
+    var feedbackRenders = 0
     @Published var deckPair = 1
     @Published var padBank: MX2PadBank = .hotcues
 
@@ -101,7 +103,16 @@ final class BridgeModel: ObservableObject {
         feedback.onStatus = { [weak self] status in self?.feedbackStatus = status }
         feedback.onState = { [weak self] state in
             guard let self else { return }
-            self.feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters"
+            self.feedbackRenders += 1
+            self.feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters · \(self.feedbackRenders) frames"
+            // Logging every frame would swamp the log at meter rates, so log the
+            // first few and then every 50th: enough to see feedback live, cheap.
+            if self.feedbackRenders <= 5 || self.feedbackRenders % 50 == 0 {
+                self.logNative("FB #\(self.feedbackRenders) decks=\(state.deckNumbers.map(String.init).joined(separator: ","))"
+                    + " meters=\(state.meters.count) palette=\(state.palette.isEmpty ? "empty" : "set")")
+            }
+            // The receiver's own render path already pushed the frame to HID via
+            // `onRGB`; this hook is for status and logging only.
         }
         feedback.onResend = { [weak self] in
             self?.osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
