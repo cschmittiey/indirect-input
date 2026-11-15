@@ -43,8 +43,7 @@ public struct MX2Mapping: Sendable {
                 ? [message("/Deck/\(deck)/GridStart")]
                 : [message("/Deck/\(deck)/PlayPause")]
         case let .cue(side):
-            guard pressed else { return [] }
-            return [message("/Deck/\(self.deck(side))/Cue", int: cueActive[side.rawValue] ? 1 : 0)]
+            return [message("/Deck/\(self.deck(side))/Cue", int: pressed ? 1 : 0)]
         case let .sync(side):
             guard pressed else { return [] }
             return [message("/Deck/\(self.deck(side))/TempoSync")]

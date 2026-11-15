@@ -42,7 +42,7 @@ public final class MX2NativeController {
             case let .jogMode(side):
                 if pressed { jogMode[side.rawValue] = true }
             case let .cue(side):
-                if pressed { cueActive[side.rawValue].toggle() }
+                cueActive[side.rawValue] = pressed // Syndicate Deck/Cue is Hold.
             case let .headphone(side):
                 if pressed { headphoneCue[side.rawValue].toggle() }
             default: break

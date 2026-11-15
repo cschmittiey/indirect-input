@@ -44,9 +44,9 @@ final class MX2NativeTests: XCTestCase {
         XCTAssertTrue(decoder.decode(jog).isEmpty)
         var buttons = [UInt8](repeating: 0, count: 15)
         buttons[0] = 1
-        buttons[1 + 29 / 8] = 1 << (29 % 8)
+        buttons[1 + 28 / 8] = 1 << (28 % 8)
         XCTAssertTrue(decoder.decode(buttons).isEmpty)
-        buttons[1 + 29 / 8] = 0
+        buttons[1 + 28 / 8] = 0
         XCTAssertEqual(decoder.decode(buttons), [.button(.cue(.left), pressed: false)])
     }
 
@@ -78,7 +78,6 @@ final class MX2NativeTests: XCTestCase {
         controller.onControl = { messages.append($0) }
         controller.handle(.button(.cue(.left), pressed: true))
         controller.handle(.button(.cue(.left), pressed: false))
-        controller.handle(.button(.cue(.left), pressed: true))
         controller.handle(.button(.headphone(.left), pressed: true))
         controller.handle(.button(.headphone(.left), pressed: true))
         XCTAssertEqual(messages.map(\.address), [

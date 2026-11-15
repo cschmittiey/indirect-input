@@ -39,6 +39,6 @@ The established renderer layout is retained while feedback is developed. Inactiv
 
 ## Cue behavior in the companion
 
-Deck transport Cue and mixer headphone Cue are distinct. Each hardware press toggles its corresponding local state and sends 1 or 0; release emits no command. The outgoing deck Cue path is `/Syndicate/Deck/{n}/Cue`, and headphone Cue is `/Syndicate/Mixer/CH{n}/Cue`.
+Deck transport Cue and mixer headphone Cue are distinct. Syndicate documents `/Syndicate/Deck/{n}/Cue` as **Hold**: the bridge sends 1 on press and 0 on release. `/Syndicate/Mixer/CH{n}/Cue` is a separate switch, toggled on each headphone-Cue press.
 
 The Native tab logs native input and outgoing OSC to `~/.local/state/indirect-input/native-events.log`. This log is diagnostic and may contain analog-control traffic.
