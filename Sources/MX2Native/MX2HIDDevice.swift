@@ -17,6 +17,18 @@ final class MX2HIDDevice {
     private var lastImage: [UInt8]?
     private var lastSend = Date.distantPast
 
+    /// The 105-byte LED frame goes out as OUTPUT report 0x80, with the report ID
+    /// repeated as the first byte of the buffer. Do not "tidy" this to IOKit's usual
+    /// separate-ID convention: the device rejects the 105-byte form and accepts the
+    /// 106-byte one, and IOKit returns kIOReturnSuccess for BOTH, so the only way to
+    /// tell them apart is watching an LED. Verified by sending four candidates with a
+    /// distinct colour each — only 0x80-with-prefix lit anything.
+    ///
+    /// Descriptor evidence: ReportID=128, Type=Output, Usage 131 (696 bits) +
+    /// Usage 129 (144 bits) = 840 bits = 105 bytes; MaxOutputReportSize=106.
+    /// Report 0xF4 is an unrelated 32-byte output and will silently do nothing.
+    static let ledReportID: UInt32 = 0x80
+
     func start() {
         guard !started else { return }
         started = true
@@ -52,18 +64,34 @@ final class MX2HIDDevice {
     }
 
     func sendRGB(_ image: [UInt8], force: Bool = false) {
-        guard image.count == 105, let device else { return }
+        guard image.count == 105 else {
+            onStatus?("RGB frame rejected: \(image.count) bytes, expected 105", false)
+            return
+        }
+        guard let device else {
+            onStatus?("RGB frame dropped: no MX2 HID device attached", false)
+            return
+        }
         let now = Date()
         guard force || image != lastImage || now.timeIntervalSince(lastSend) > 1 else { return }
-        let report = [UInt8(0x80)] + image
+        // Report 0x80 with the ID prefixed into the buffer — see ledReportID above for
+        // why this shape and not IOKit's usual separate-ID form.
+        let report = [UInt8(MX2HIDDevice.ledReportID)] + image
         let result = report.withUnsafeBufferPointer {
-            IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput, 0x80,
+            IOHIDDeviceSetReport(device, kIOHIDReportTypeOutput,
+                                 CFIndex(MX2HIDDevice.ledReportID),
                                  $0.baseAddress!, $0.count)
         }
         if result == kIOReturnSuccess {
             lastImage = image
             lastSend = now
         }
+        // Always surface the transport result. A silent success here is what hid the
+        // wrong-report-ID bug for hours, so never swallow it.
+        onStatus?(result == kIOReturnSuccess
+                  ? "RGB sent \(image.filter { $0 != 0 }.count) lit on report 0x80"
+                  : "RGB SetReport failed: \(result)",
+                  result == kIOReturnSuccess)
         onRGB?(image, result)
     }
 

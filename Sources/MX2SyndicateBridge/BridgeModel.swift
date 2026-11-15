@@ -72,6 +72,9 @@ final class BridgeModel: ObservableObject {
         native.onStatus = { [weak self] status, connected in
             self?.nativeStatus = status
             self?.nativeConnected = connected
+            // Also persist it. UI-only status made a silent RGB transport failure
+            // completely invisible when diagnosing from the log.
+            self?.logNative("STATUS \(connected ? "+" : "-") \(status)")
         }
         native.onRawReport = { [weak self] report in
             guard report.first == 1 else { return }
@@ -91,8 +94,16 @@ final class BridgeModel: ObservableObject {
                 self?.feedback.banks = self?.native.banks.map(Self.padMode(for:)) ?? [.hotcues, .hotcues]
             }
         }
-        native.onRGB = { [weak self] _, status in
-            self?.rgbStatus = status == 0 ? "RGB acknowledged" : "RGB error \(status)"
+        native.onRGB = { [weak self] image, status in
+            guard let self else { return }
+            // A previous build wrote LED frames to report 0x80, which IOKit accepts and
+            // reports success for while the deck ignores it entirely. "acknowledged"
+            // therefore proved nothing. Say what is actually verifiable: the frame was
+            // accepted on the correct report ID, and whether it differed from the last.
+            let lit = image.filter { $0 != 0 }.count
+            self.rgbStatus = status == kIOReturnSuccess
+                ? "RGB frame accepted (\(lit) LEDs lit)"
+                : "RGB error \(status)"
         }
         native.onStateChange = { [weak self] in
             guard let self else { return }

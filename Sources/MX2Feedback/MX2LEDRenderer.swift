@@ -348,7 +348,11 @@ public struct MX2LEDRenderer: Sendable {
         set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .dim)
         set(.keylock, .blue, deck.pitchPreserve ? .lit : .dim)
         let previewActive = context.cueActive[physicalDeck] ?? deck.cueActive
-        set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .dim))
+        // CUE lamp: bright while the transport CUE is held, dim whenever the deck has
+        // something loaded (so the button is findable), dark when empty. The previous
+        // version had `deck.loaded ? .dim : .dim` — both arms identical, so the lamp
+        // could never brighten and pressing CUE looked like nothing happened.
+        set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .off))
 
         // Transport: pending wins over playing wins over loaded.
         if deck.playPending || state.playPending {

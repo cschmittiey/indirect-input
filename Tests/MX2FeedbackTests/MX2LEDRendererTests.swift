@@ -206,8 +206,10 @@ final class MX2LEDRendererTests: XCTestCase {
         let context = MX2RenderContext(cueActive: [2: true])
         let active = renderer.render(state: state, context: context)
         XCTAssertEqual(control(active, deck: 2, .cue), MX2LEDColor.orange.byte(lit: true))
-        // Deck 1 is empty AND not previewing, so its CUE sits dim rather than black.
-        XCTAssertEqual(control(active, deck: 1, .cue), MX2LEDColor.orange.byte(lit: false))
+        // Deck 1 is empty and not previewing, so its CUE is fully dark. It used to sit
+        // dim because the ternary had `.dim` in both arms, so the lamp could never be
+        // off and never brightened on press either.
+        XCTAssertEqual(control(active, deck: 1, .cue), 0)
     }
 
     func testFilterAvailabilityDoesNotPretendToBeAnActiveEffectAtUnverifiedLEDIDs() {
