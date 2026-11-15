@@ -19,12 +19,15 @@ public struct MX2Mapping: Sendable {
                       headphoneCue: [Bool] = [false, false],
                       pitchPreserve: [Int: Bool] = [:],
                       cueSlip: [Int: Bool] = [:],
+                      fxEnabled: [Int: Bool] = [:],
+                      browserMode: Int = 0,
                       samplerMute: [Int: [Int: Bool]] = [:]) -> [OSCMessage] {
         switch event {
         case let .button(control, pressed):
             return button(control, pressed: pressed, bank: bank, shift: shift, jogMode: jogMode,
                           cueActive: cueActive, headphoneCue: headphoneCue,
-                          pitchPreserve: pitchPreserve, cueSlip: cueSlip, samplerMute: samplerMute)
+                          pitchPreserve: pitchPreserve, cueSlip: cueSlip, fxEnabled: fxEnabled,
+                          browserMode: browserMode, samplerMute: samplerMute)
         case let .analog(control, raw):
             return analog(control, raw: raw)
         case let .encoder(control, delta):
@@ -40,6 +43,7 @@ public struct MX2Mapping: Sendable {
                         bank: [MX2PadBank], shift: [Bool], jogMode: [Bool],
                         cueActive: [Bool], headphoneCue: [Bool],
                         pitchPreserve: [Int: Bool], cueSlip: [Int: Bool],
+                        fxEnabled: [Int: Bool], browserMode: Int,
                         samplerMute: [Int: [Int: Bool]]) -> [OSCMessage] {
         switch control {
         case let .play(side):
@@ -99,22 +103,33 @@ public struct MX2Mapping: Sendable {
             }
         case let .fxButton(side, index):
             guard pressed else { return [] }
-            let deck = self.deck(side)
-            if index == 1 {
-                return [message("/Mixer/CH\(deck)/FX", int: 1)]
-            }
-            return [message("/Mixer/CH\(deck)/FX/Macro/\(index - 1)", float: 1)]
+            // Verified on hardware: FX 1-4 are bits 60/61 (+64/65 right) and the GFX
+            // toggle is a separate physical button at 62/66. Syndicate exposes exactly
+            // one insert-chain Switch per channel (OSC §14.9 `/Mixer/CH{n}/FX`), and
+            // that belongs to the GFX toggle. Letting FX 1-4 share it would make two
+            // different buttons cancel each other. FX 2-4 likewise have no generic
+            // on/off target: FX/Macro/{1-8} are continuous Values, not effect switches.
+            _ = side
+            _ = index
+            return []
         case let .fxAssign(side, index):
             guard pressed else { return [] }
             return [message("/Mixer/CH\(self.deck(side))/FX/Macro/\(index)", float: 1)]
         case let .channelFX(side):
-            return [message("/Mixer/CH\(self.deck(side))/FX", int: pressed ? 1 : 0)]
+            guard pressed else { return [] }
+            // Repurpose the hardware GFX toggle as the insert-chain Switch
+            // documented in OSC 0.3.10 §14.9; it must not bypass on release.
+            let deck = self.deck(side)
+            return [message("/Mixer/CH\(deck)/FX", int: fxEnabled[deck, default: false] ? 1 : 0)]
         case let .headphone(side):
             guard pressed else { return [] }
             return [message("/Mixer/CH\(self.deck(side))/Cue", int: headphoneCue[side.rawValue] ? 1 : 0)]
-        case let .globalFX(index):
-            guard pressed else { return [] }
-            return [message("/Mixer/CH\(firstDeck)/FX/Macro/\(index)", float: 1)]
+        case .globalFX:
+            // Hardware GFX 1–4 select a Quick Effect preset for both decks.
+            // OSC 0.3.10 §14.9 has no preset selector: FX is an insert-chain
+            // Switch and FX/Macro/{1-8} are continuous insert values, not presets.
+            // Legacy native FX routes are accepted but do nothing. No substitute.
+            return []
         case .filter:
             // The MX2's centre filter is audio-only. `Filter1` is a bipolar 0-1
             // value (0.5 neutral), so 0.5 expresses "no change" rather than the
@@ -130,11 +145,13 @@ public struct MX2Mapping: Sendable {
             guard pressed else { return [] }
             return [message("/Browser/Navigation/Enter")]
         case .preview:
-            guard pressed else { return [] }
-            return [message("/Browser/Preview", int: 1)]
+            // Intent: load/play the selected track in the preview deck.
+            // OSC 0.3.10 §14.5 has no route for this; Browser/Preview does not exist.
+            return []
         case .view:
             guard pressed else { return [] }
-            return [message("/Header/Browser", int: 1)]
+            // OSC 0.3.10 §14.4: Index 0 hidden, 1 embedded, 2 detached.
+            return [message("/Header/Browser", int: Int32(browserMode))]
         case let .browsePress(side):
             guard pressed else { return [] }
             return [message("/Browser/L\(self.deck(side))")]

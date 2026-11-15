@@ -129,6 +129,119 @@ final class MX2NativeTests: XCTestCase {
         ])
     }
 
+    @MainActor
+    func testGfxToggleTracksInsertSwitchPerLogicalDeckOnPressOnly() {
+        // The valuable assertion here is deck-pair persistence: the Switch is keyed by
+        // LOGICAL deck, so changing the deck pair must not send a stray bypass and must
+        // not lose the state. Only the GFX toggle drives it — deck FX 1-4 are separate
+        // physical buttons (bits 60/61) and must not share this switch.
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        for (firstDeck, enabled) in [(1, Int32(1)), (3, Int32(1)), (1, Int32(0))] {
+            controller.mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                messages.removeAll()
+                controller.handle(.button(.channelFX(side), pressed: true))
+                // Changing pairs while held must not send a bypass on release.
+                controller.mapping.firstDeck = firstDeck == 1 ? 3 : 1
+                controller.handle(.button(.channelFX(side), pressed: false))
+                controller.mapping.firstDeck = firstDeck
+                XCTAssertEqual(messages, [OSCMessage(
+                    address: "/Syndicate/Mixer/CH\(firstDeck + side.rawValue)/FX", integer: enabled)])
+            }
+        }
+    }
+
+    @MainActor
+    func testGfxToggleOwnsTheInsertSwitchAndDeckFXButtonsDoNotShareIt() {
+        // Hardware-verified: FX 1-4 are bits 60/61 (64/65 on the right) and the GFX
+        // toggle is a separate button at 62/66. Syndicate has exactly one insert-chain
+        // Switch per channel, and the owner chose the GFX toggle to own it. If FX 1
+        // also toggled it, pressing FX 1 then the GFX toggle would cancel out.
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+
+        // Deck FX buttons must be silent.
+        for control in [MX2Control.fxButton(.left, 1), .fxButton(.left, 2),
+                        .fxButton(.left, 3), .fxButton(.left, 4),
+                        .fxButton(.right, 1)] {
+            controller.handle(.button(control, pressed: true))
+            controller.handle(.button(control, pressed: false))
+        }
+        XCTAssertTrue(messages.isEmpty, "deck FX buttons must not drive the insert switch")
+
+        // The GFX toggle alone owns it: on, then off.
+        controller.handle(.button(.channelFX(.left), pressed: true))
+        controller.handle(.button(.channelFX(.left), pressed: false))
+        controller.handle(.button(.channelFX(.left), pressed: true))
+        controller.handle(.button(.channelFX(.left), pressed: false))
+        XCTAssertEqual(messages, [Int32(1), 0].map {
+            OSCMessage(address: "/Syndicate/Mixer/CH1/FX", integer: $0)
+        })
+    }
+
+    @MainActor
+    func testViewCyclesOneSharedBrowserModeOnPressOnly() {
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+        for (firstDeck, side) in [(1, MX2Side.left), (1, .right), (3, .left),
+                                  (3, .right), (1, .left), (1, .right)] {
+            controller.mapping.firstDeck = firstDeck
+            controller.handle(.button(.view(side), pressed: true))
+            controller.handle(.button(.view(side), pressed: false))
+        }
+        XCTAssertEqual(messages, [Int32(1), 2, 0, 1, 2, 0].map {
+            OSCMessage(address: "/Syndicate/Header/Browser", integer: $0)
+        })
+    }
+
+    func testFXButtonsTwoThroughFourDoNotOverwriteContinuousInsertMacros() {
+        var mapping = MX2Mapping()
+        for firstDeck in [1, 3] {
+            mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                for index in 2...4 {
+                    for pressed in [true, false] {
+                        XCTAssertEqual(mapping.route(.button(.fxButton(side, index), pressed: pressed),
+                                                     bank: [.hotcues, .hotcues], shift: [false, false],
+                                                     jogMode: [false, false]), [])
+                    }
+                }
+            }
+        }
+    }
+
+    func testGlobalFXPresetsDoNotChangeInsertMacrosOrOtherMixerValues() {
+        var mapping = MX2Mapping()
+        for firstDeck in [1, 3] {
+            mapping.firstDeck = firstDeck
+            for index in 1...4 {
+                for pressed in [true, false] {
+                    XCTAssertEqual(mapping.route(.button(.globalFX(index), pressed: pressed),
+                                                 bank: [.hotcues, .hotcues], shift: [false, false],
+                                                 jogMode: [false, false]), [])
+                }
+            }
+        }
+    }
+
+    func testPreviewDoesNotSendAnInventedPreviewDeckRoute() {
+        var mapping = MX2Mapping()
+        for firstDeck in [1, 3] {
+            mapping.firstDeck = firstDeck
+            for side in [MX2Side.left, .right] {
+                for pressed in [true, false] {
+                    XCTAssertEqual(mapping.route(.button(.preview(side), pressed: pressed),
+                                                 bank: [.hotcues, .hotcues], shift: [false, false],
+                                                 jogMode: [false, false]), [])
+                }
+            }
+        }
+    }
+
     func testPatternPadsSelectZeroBasedSamplerLanesOnPressOnly() {
         var mapping = MX2Mapping()
         for firstDeck in [1, 3] {

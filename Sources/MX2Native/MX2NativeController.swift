@@ -19,7 +19,10 @@ public final class MX2NativeController {
     // Switch state is keyed by logical deck, so changing deck pairs preserves it.
     public var pitchPreserve: [Int: Bool] = [:]
     public var cueSlip: [Int: Bool] = [:]
+    public var fxEnabled: [Int: Bool] = [:]
     public var samplerMute: [Int: [Int: Bool]] = [:]
+    // Header browser mode is global, shared by both VIEW buttons and all pairs.
+    public private(set) var browserMode: Int = 0
     public var onStateChange: (() -> Void)?
     var scratchEnabled = false
     var feedback: [String: [OSCArgument]] = [:]
@@ -58,6 +61,10 @@ public final class MX2NativeController {
                    banks[side.rawValue] == .pattern, shift[side.rawValue] {
                     samplerMute[mapping.deck(side), default: [:]][index, default: false].toggle()
                 }
+            case let .channelFX(side):
+                if pressed { fxEnabled[mapping.deck(side), default: false].toggle() }
+            case .view:
+                if pressed { browserMode = (browserMode + 1) % 3 }
             case let .headphone(side):
                 if pressed { headphoneCue[side.rawValue].toggle() }
             default: break
@@ -104,8 +111,8 @@ public final class MX2NativeController {
     private func route(_ event: MX2InputEvent) -> [OSCMessage] {
         mapping.route(event, bank: banks, shift: shift, jogMode: jogMode,
                       cueActive: cueActive, headphoneCue: headphoneCue,
-                      pitchPreserve: pitchPreserve, cueSlip: cueSlip,
-                      samplerMute: samplerMute)
+                      pitchPreserve: pitchPreserve, cueSlip: cueSlip, fxEnabled: fxEnabled,
+                      browserMode: browserMode, samplerMute: samplerMute)
     }
 
     public func sendRGB(_ image: [UInt8], force: Bool = false) {
