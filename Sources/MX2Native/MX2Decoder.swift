@@ -75,26 +75,27 @@ public struct MX2Decoder: Sendable {
     private var buttonValues: [Bool] = Array(repeating: false, count: 82)
     private var encoderValues: [UInt8] = Array(repeating: 0, count: 6)
     private var jogValues: [UInt32] = [0, 0]
-    private var initialized = false
+    private var initializedReports: Set<UInt8> = []
 
     public init() {}
 
     public mutating func decode(_ report: [UInt8]) -> [MX2InputEvent] {
         guard let id = report.first else { return [] }
-        defer { initialized = true }
+        defer { initializedReports.insert(id) }
+        let initialized = initializedReports.contains(id)
         switch id {
         case 1 where report.count == 15:
-            return decodeButtons(Array(report.dropFirst()))
+            return decodeButtons(Array(report.dropFirst()), initialized: initialized)
         case 2 where report.count == 53:
-            return decodeAnalogs(Array(report.dropFirst()))
+            return decodeAnalogs(Array(report.dropFirst()), initialized: initialized)
         case 3 where report.count == 20:
-            return decodeJogs(Array(report.dropFirst()))
+            return decodeJogs(Array(report.dropFirst()), initialized: initialized)
         default:
             return []
         }
     }
 
-    private mutating func decodeButtons(_ data: [UInt8]) -> [MX2InputEvent] {
+    private mutating func decodeButtons(_ data: [UInt8], initialized: Bool) -> [MX2InputEvent] {
         var events: [MX2InputEvent] = []
         for index in 0..<82 {
             let pressed = (data[index / 8] & (1 << (index % 8))) != 0
@@ -117,7 +118,7 @@ public struct MX2Decoder: Sendable {
         return events
     }
 
-    private mutating func decodeAnalogs(_ data: [UInt8]) -> [MX2InputEvent] {
+    private mutating func decodeAnalogs(_ data: [UInt8], initialized: Bool) -> [MX2InputEvent] {
         var events: [MX2InputEvent] = []
         for index in 0..<26 {
             let value = UInt16(data[index * 2]) | (UInt16(data[index * 2 + 1]) << 8)
@@ -129,7 +130,7 @@ public struct MX2Decoder: Sendable {
         return events
     }
 
-    private mutating func decodeJogs(_ data: [UInt8]) -> [MX2InputEvent] {
+    private mutating func decodeJogs(_ data: [UInt8], initialized: Bool) -> [MX2InputEvent] {
         var events: [MX2InputEvent] = []
         for side in 0..<2 {
             let offset = 3 + side * 8 + 4

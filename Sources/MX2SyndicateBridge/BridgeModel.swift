@@ -22,6 +22,7 @@ final class BridgeModel: ObservableObject {
     @Published var nativeStatus = "Native idle"
     @Published var nativeConnected = false
     @Published var nativeInput = "No native input yet"
+    @Published var nativeOutput = "No native OSC sent yet"
     @Published var feedbackStatus = "Feedback not started"
     @Published var rgbStatus = "RGB not sent"
     @Published var deckPair = 1
@@ -33,6 +34,22 @@ final class BridgeModel: ObservableObject {
     let feedback = MX2FeedbackClient()
 
     private var shiftPressed = false
+    private let nativeLogURL = URL(fileURLWithPath: NSHomeDirectory())
+        .appendingPathComponent(".local/state/indirect-input/native-events.log")
+
+    private func logNative(_ line: String) {
+        let text = "\(ISO8601DateFormatter().string(from: Date())) \(line)\n"
+        guard let data = text.data(using: .utf8) else { return }
+        let directory = nativeLogURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        if let handle = try? FileHandle(forWritingTo: nativeLogURL) {
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: nativeLogURL)
+        }
+    }
 
     init() {
         let defaults = UserDefaults.standard
@@ -54,9 +71,18 @@ final class BridgeModel: ObservableObject {
             self?.nativeStatus = status
             self?.nativeConnected = connected
         }
-        native.onControl = { [weak self] message in self?.send(message) }
+        native.onRawReport = { [weak self] report in
+            guard report.first == 1 else { return }
+            self?.logNative("RAW " + report.map { String(format: "%02X", $0) }.joined(separator: " "))
+        }
+        native.onControl = { [weak self] message in
+            self?.nativeOutput = "\(message.address) · \(Self.describe(message))"
+            self?.logNative("OUT \(message.address) \(Self.describe(message))")
+            self?.send(message)
+        }
         native.onEvent = { [weak self] event in
             self?.nativeInput = String(describing: event)
+            self?.logNative("IN \(event)")
             self?.feedback.shift = self?.native.shift ?? [false, false]
             if let bank = self?.native.banks[0] {
                 self?.padBank = bank
@@ -160,6 +186,16 @@ final class BridgeModel: ObservableObject {
         native.banks = [bank, bank]
         let mode = Self.padMode(for: bank)
         feedback.banks = [mode, mode]
+    }
+
+    static func describe(_ message: BridgeCore.OSCMessage) -> String {
+        message.arguments.map {
+            switch $0 {
+            case let .int(value): return String(value)
+            case let .float(value): return String(format: "%.3f", value)
+            case let .string(value): return value
+            }
+        }.joined(separator: ", ")
     }
 
     static func padMode(for bank: MX2PadBank) -> MX2PadMode {
@@ -323,6 +359,7 @@ struct ContentView: View {
             }
             VStack(alignment: .leading, spacing: 7) {
                 Text(model.nativeInput).font(.caption)
+                Text(model.nativeOutput).font(.caption).foregroundStyle(.secondary)
                 Text(model.feedbackStatus).font(.caption).foregroundStyle(.secondary)
                 Text(model.rgbStatus).font(.caption).foregroundStyle(.secondary)
                 Text("\(model.eventCount) OSC events")

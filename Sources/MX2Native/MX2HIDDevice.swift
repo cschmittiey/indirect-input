@@ -6,6 +6,7 @@ final class MX2HIDDevice {
     var onEvent: ((MX2InputEvent) -> Void)?
     var onStatus: ((String, Bool) -> Void)?
     var onRGB: (([UInt8], IOReturn) -> Void)?
+    var onRawReport: (([UInt8]) -> Void)?
 
     private var manager: IOHIDManager?
     private var device: IOHIDDevice?
@@ -104,6 +105,7 @@ final class MX2HIDDevice {
     }
 
     private func receive(_ report: [UInt8]) {
+        onRawReport?(report)
         for event in decoder.decode(report) { onEvent?(event) }
     }
 

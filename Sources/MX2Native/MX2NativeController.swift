@@ -7,6 +7,7 @@ public final class MX2NativeController {
     public var onStatus: ((String, Bool) -> Void)?
     public var onRGB: (([UInt8], IOReturn) -> Void)?
     public var onControl: ((OSCMessage) -> Void)?
+    public var onRawReport: (([UInt8]) -> Void)?
 
     let device = MX2HIDDevice()
     public var mapping = MX2Mapping()
@@ -25,6 +26,7 @@ public final class MX2NativeController {
         device.onEvent = { [weak self] in self?.handle($0) }
         device.onStatus = { [weak self] text, connected in self?.onStatus?(text, connected) }
         device.onRGB = { [weak self] image, status in self?.onRGB?(image, status) }
+        device.onRawReport = { [weak self] report in self?.onRawReport?(report) }
     }
 
     public func start() { device.start() }

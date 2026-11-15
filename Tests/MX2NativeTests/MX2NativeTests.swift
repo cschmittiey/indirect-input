@@ -21,6 +21,19 @@ final class MX2NativeTests: XCTestCase {
         ])
     }
 
+    func testJogReportDoesNotReleaseButtonBeforeFirstButtonReport() {
+        var decoder = MX2Decoder()
+        var jog = [UInt8](repeating: 0, count: 20)
+        jog[0] = 3
+        XCTAssertTrue(decoder.decode(jog).isEmpty)
+        var buttons = [UInt8](repeating: 0, count: 15)
+        buttons[0] = 1
+        buttons[1 + 28 / 8] = 1 << (28 % 8)
+        XCTAssertTrue(decoder.decode(buttons).isEmpty)
+        buttons[1 + 28 / 8] = 0
+        XCTAssertEqual(decoder.decode(buttons), [.button(.cue(.left), pressed: false)])
+    }
+
     func testAnalogUsesFullTwelveBitRange() {
         var decoder = MX2Decoder()
         XCTAssertTrue(decoder.decode([2] + [UInt8](repeating: 0, count: 52)).isEmpty)
@@ -28,6 +41,18 @@ final class MX2NativeTests: XCTestCase {
         data[0] = 0xFF
         data[1] = 0x0F
         XCTAssertEqual(decoder.decode([2] + data), [.analog(.fxKnob(.left, 1), value: 4095)])
+    }
+
+    @MainActor
+    func testRestoredRGBLayoutUsesOldOffsetsAndLeavesFilterRegionDark() {
+        let client = MX2FeedbackClient()
+        let image = client.renderForTesting()
+        XCTAssertEqual(image.count, 105)
+        XCTAssertEqual(image[30], 14) // Right deck FX1: old bright orange.
+        XCTAssertEqual(image[43], 44) // Right deck Sync: old dim blue when inactive.
+        for index in 73..<79 { XCTAssertEqual(image[index], 46) }
+        for index in 79..<85 { XCTAssertEqual(image[index], 46) }
+        for index in 60..<73 { XCTAssertEqual(image[index], 0) }
     }
 
     @MainActor
@@ -94,12 +119,12 @@ final class MX2NativeTests: XCTestCase {
         var decoder = MX2Decoder()
         var first = [UInt8](repeating: 0, count: 20)
         first[0] = 3
-        first[11] = 132
-        first[12] = 0x03
+        first[7] = 132
+        first[8] = 0x03
         XCTAssertTrue(decoder.decode(first).isEmpty)
         var second = first
-        second[11] = 100
-        second[12] = 0
+        second[7] = 100
+        second[8] = 0
         XCTAssertEqual(decoder.decode(second), [.jog(.left, delta: 160)])
     }
 }

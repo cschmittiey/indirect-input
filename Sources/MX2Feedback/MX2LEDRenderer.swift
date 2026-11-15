@@ -331,16 +331,19 @@ public struct MX2LEDRenderer: Sendable {
             }
         }
 
-        // Indicators with no feedback source stay dark.
-        for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
-                        .preview, .view, .flux, .reverse, .turntable, .jog] {
-            set(control, .off, .off)
+        // Preserve the established MX2 layout even before feedback arrives.
+        for control in [MX2Control.fx1, .fx2, .fx3, .fx4] {
+            set(control, .orange, .lit)
         }
-
-        set(.shift, .white, context.shiftPressed ? .lit : .off)
-        set(.sync, .blue, deck.sync ? .lit : .off)
-        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .off)
-        set(.keylock, .blue, deck.pitchPreserve ? .lit : .off)
+        for control in [MX2Control.favorite, .add, .preview, .view, .turntable, .jog] {
+            set(control, .blue, .lit)
+        }
+        set(.flux, .red, deck.cueSlip ? .lit : .dim)
+        set(.reverse, .red, .dim)
+        set(.shift, .white, context.shiftPressed ? .lit : .dim)
+        set(.sync, .blue, deck.sync ? .lit : .dim)
+        set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .dim)
+        set(.keylock, .blue, deck.pitchPreserve ? .lit : .dim)
         let previewActive = context.cueActive[physicalDeck] ?? deck.cueActive
         set(.cue, .orange, previewActive ? .lit : (deck.loaded ? .dim : .off))
 
@@ -357,10 +360,10 @@ public struct MX2LEDRenderer: Sendable {
 
         // Pad-bank indicators: the active bank is lit, the rest are dark. A dim code
         // would make an empty state glow, and the bank is only meaningful when active.
-        set(.hotcues, .red, context.padMode == .hotcues ? .lit : .off)
-        set(.stems, .purple, context.padMode == .stems ? .lit : .off)
-        set(.pattern, .orange, context.padMode == .pattern ? .lit : .off)
-        set(.loops, .green, context.padMode == .loops ? .lit : .off)
+        set(.hotcues, .blue, context.padMode == .hotcues ? .lit : .dim)
+        set(.stems, .purple, context.padMode == .stems ? .lit : .dim)
+        set(.pattern, .orange, context.padMode == .pattern ? .lit : .dim)
+        set(.loops, .green, context.padMode == .loops ? .lit : .dim)
 
         let held = context.heldPads[physicalDeck] ?? []
         for (index, control) in MX2Control.pads.enumerated() {
@@ -409,14 +412,10 @@ public struct MX2LEDRenderer: Sendable {
         let base = MX2LEDLayout.undershellBase(physicalDeck)
         let color: MX2LEDColor
         let lit: Bool
-        if deck.playPending {
-            (color, lit) = (.yellow, true)
-        } else if deck.playing {
+        if deck.loop {
             (color, lit) = (.green, true)
-        } else if deck.loaded {
-            (color, lit) = (.green, false)
         } else {
-            (color, lit) = (.off, false)
+            (color, lit) = (.blue, true)
         }
         for offset in 0..<MX2LEDLayout.undershellCount {
             guard let index = MX2LEDLayout.byteIndex(id: base + offset) else { continue }

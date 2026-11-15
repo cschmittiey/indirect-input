@@ -56,6 +56,15 @@ public final class MX2FeedbackClient {
         return result
     }
 
+    func renderForTesting() -> [UInt8] {
+        var image: [UInt8] = []
+        let old = onRGB
+        onRGB = { image = $0 }
+        publish()
+        onRGB = old
+        return image
+    }
+
     private func publish() {
         render(receiver.state)
     }
@@ -75,15 +84,14 @@ public final class MX2FeedbackClient {
                 headphoneCue: [physical: headphoneCue[index]]
             )
             let frame = renderer.render(state: state, context: context)
-            let deckBase = physical == 1 ? 0 : 40
+            let deckBase = physical == 1 ? 0 : 30
             for offset in 0..<30 { combined[deckBase + offset] = frame[deckBase + offset] }
-            let underBase = physical == 1 ? 80 : 86
+            let underBase = physical == 1 ? 73 : 79
             for offset in 0..<6 { combined[underBase + offset] = frame[underBase + offset] }
-            let meterBase = physical == 1 ? 87 : 96
+            let meterBase = physical == 1 ? 86 : 95
             for offset in 0..<9 { combined[meterBase + offset] = frame[meterBase + offset] }
-            for id in [physical == 1 ? 62 : 66, physical == 1 ? 64 : 68] {
-                if let byte = MX2LEDLayout.byteIndex(id: id) { combined[byte] = frame[byte] }
-            }
+            // Keep the previous mixer/filter layout. Do not invent extra lights
+            // while the feedback mapping is still being validated.
         }
         onRGB?(combined)
     }
