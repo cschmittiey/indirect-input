@@ -12,9 +12,24 @@ The `MX2PortDescriptor` constructor names the controls and gives their actual ID
 - left Hotcues 16, Stems 17, Pattern 18, Loops 19
 - right Hotcues 46, Stems 47, Pattern 48, Loops 49
 - left pads 20...27; right pads 50...57
-- mixer FX assign 60/61, channel FX 62/63, headphone Cue 64/65
-- global FX 66...69, Filter 70, microphone 71
-- browse press 72/73, loop move 74/75, loop size 76/77, jog touch 78/79
+
+**Mixer block, measured against hardware.** Every ID below was confirmed by pressing
+the physical control with `scripts/hid-probe.swift` and reading the bit that changed;
+the results agree with `MX2Decoder.buttons` exactly. Note each control gets its own ID
+per side — an earlier version of this document wrongly listed one shared ID for both
+sides from 62 onward, which shifted the whole block:
+
+- left FX assign 60/61, then channel FX 62, headphone Cue 63
+- right FX assign 64/65, then channel FX 66, headphone Cue 67
+- global FX 68...71
+- Filter 72, microphone 73
+- browse press 74/75, loop move 76/77, loop size 78/79, jog touch 80/81
+  *(this final group is carried over from the descriptor and has not yet been
+  hardware-verified; treat it as unconfirmed)*
+
+The correct reading of the block is left-pair, then right-pair, then the centre
+controls. There is no interleaving: 62/63 belong to the right deck's neighbour
+controls on the left, not to a second global FX entry.
 
 The remaining left/right deck controls occupy IDs 0...15 and 30...45 in the same order as the decoder table.
 
