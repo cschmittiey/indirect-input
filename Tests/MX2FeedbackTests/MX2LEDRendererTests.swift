@@ -97,17 +97,16 @@ final class MX2LEDRendererTests: XCTestCase {
         }
     }
 
-    func testUnmappedControlsShowDimUnmappedTintNotBlack() {
-        // An unmapped control is rendered dim magenta — a colour no real deck state
-        // uses — so it reads as "no signal yet" rather than as a working control that
-        // happens to be off, and the panel is not a dead black void.
+    func testUnmappedControlsAreFullyDark() {
+        // Contract, reversed deliberately: unmapped controls used to carry a dim magenta
+        // "no signal" tint so they were visible at a glance. The owner preferred a black
+        // panel - a lamp that never responds to anything is noise, and dark reads as
+        // "not wired" more honestly than a colour that means nothing here.
         let frame = renderer.render(state: MX2FeedbackState(), context: MX2RenderContext())
         for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
                         .preview, .view, .flux, .reverse, .turntable, .jog] {
-            let byte = self.control(frame, deck: 1, control)
-            XCTAssertEqual(byte, MX2LEDColor.dimUnmapped.byte(lit: false),
-                           "\(control) should be dim unmapped tint")
-            XCTAssertEqual(byte % 4, 0, "\(control) must never be bright")
+            XCTAssertEqual(self.control(frame, deck: 1, control), 0,
+                           "\(control) is unmapped and must be dark")
         }
     }
 
@@ -224,8 +223,8 @@ final class MX2LEDRendererTests: XCTestCase {
             XCTAssertNotEqual(byte(frame, id: id) % 4, 2,
                               "availability is not activation: LED \(id) must not be bright")
         }
-        // The filter lamp itself specifically must not light from availability.
-        XCTAssertEqual(byte(frame, id: MX2MixerLamp.forButton(72)!), MX2LEDColor.blue.byte(lit: false))
+        // The filter lamp itself is dark: no feedback route exists for it.
+        XCTAssertEqual(byte(frame, id: MX2MixerLamp.forButton(72)!), 0)
     }
 
     func testMixerLampsCoverTheMixerBlockAndOffsetFromButtonIDs() {
@@ -238,12 +237,18 @@ final class MX2LEDRendererTests: XCTestCase {
         XCTAssertNil(MX2MixerLamp.forButton(73))
         XCTAssertNil(MX2MixerLamp.forButton(59))
 
-        // With nothing cued, every mixer lamp is populated but dim - never bright.
+        // With nothing cued every mixer lamp is dark EXCEPT the headphone Cue lamps
+        // (64/68), which are the only ones with real state behind them and so stay dim
+        // white when off. Everything else has no feedback route and is fully dark.
         let frame = renderer.render(state: MX2FeedbackState(), context: MX2RenderContext())
+        let headphoneLamps: Set<Int> = [64, 68]
         for id in 61...73 {
-            let value = byte(frame, id: id)
-            XCTAssertNotEqual(value, 0, "mixer lamp \(id) should be visible")
-            XCTAssertEqual(value % 4, 0, "mixer lamp \(id) must be dim")
+            if headphoneLamps.contains(id) {
+                XCTAssertEqual(byte(frame, id: id), MX2LEDColor.white.byte(lit: false),
+                               "headphone lamp \(id) should be dim white")
+            } else {
+                XCTAssertEqual(byte(frame, id: id), 0, "mixer lamp \(id) should be dark")
+            }
         }
     }
 

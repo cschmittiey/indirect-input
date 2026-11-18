@@ -62,22 +62,25 @@ final class MX2NativeTests: XCTestCase {
     }
 
     @MainActor
-    func testIdleFeedbackFrameIsLegibleButShowsNoRealState() {
-        // With no feedback, nothing may claim real state: PLAY and the meters stay
-        // dark. But the panel is not a black void — unmapped controls carry a dim
-        // "no signal" tint and offline state controls sit dim, so a dead control is
-        // distinguishable from a working one that is simply off.
+    func testIdleFeedbackFrameLeavesUnmappedControlsDark() {
+        // With no feedback: unmapped controls and mixer lamps with no route are fully
+        // dark. Tracked-but-off state controls (SYNC/MASTER/KEYLOCK) stay dim so a
+        // working control is distinguishable from one that was never wired. PLAY and
+        // the meters stay dark outright, because lighting them would invent state.
         let client = MX2FeedbackClient()
         let image = client.renderForTesting()
         XCTAssertEqual(image.count, 105)
-        XCTAssertEqual(image[30], MX2LEDColor.dimUnmapped.byte(lit: false)) // Right FX1
-        XCTAssertEqual(image[43], MX2LEDColor.blue.byte(lit: false))        // Right Sync, dim
-        XCTAssertEqual(image[29], 0)                                        // PLAY: unknown
-        for index in 60..<73 {
-            // Mixer lamps are now populated (dim), never bright without feedback.
-            XCTAssertNotEqual(image[index] % 4, 2, "mixer index \(index) must not be bright")
-            XCTAssertNotEqual(image[index], 0, "mixer index \(index) should be visible")
+        XCTAssertEqual(image[30], 0)                                 // Right FX1: unmapped
+        XCTAssertEqual(image[43], MX2LEDColor.blue.byte(lit: false)) // Right Sync: dim
+        XCTAssertEqual(image[29], 0)                                 // PLAY: unknown
+        XCTAssertEqual(image[74], 0)                                 // deck A under-shell
+        // Mixer lamps: dark except the headphone Cue pair, which is the only one with
+        // real state behind it.
+        for id in 61...73 where id != 64 && id != 68 {
+            XCTAssertEqual(image[id - 1], 0, "mixer lamp \(id) should be dark")
         }
+        XCTAssertEqual(image[64 - 1], MX2LEDColor.white.byte(lit: false))
+        XCTAssertEqual(image[68 - 1], MX2LEDColor.white.byte(lit: false))
     }
 
     @MainActor

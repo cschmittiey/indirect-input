@@ -39,11 +39,6 @@ public enum MX2LEDColor: Int, CaseIterable, Sendable {
         }
     }
 
-    /// Deliberately outside the palette the hardware uses for real state, so an
-    /// unmapped control can never be mistaken for a genuinely lit one. Rendered only
-    /// at `dim`, never `lit`.
-    public static let dimUnmapped: MX2LEDColor = .magenta
-
     /// Closest MX2 colour for an arbitrary RGB value (near-black maps to `.off`).
     public static func nearest(to rgb: MX2RGB) -> MX2LEDColor {
         if rgb.red + rgb.green + rgb.blue < 24 { return .off }
@@ -355,14 +350,18 @@ public struct MX2LEDRenderer: Sendable {
             let deckNumber = context.deckAssignment.deck(for: physicalDeck)
             let enabled = context.headphoneCue[physicalDeck]
                 ?? state.headphoneCue[deckNumber] ?? false
+            // Dim white when off, bright when cueing. This is the one mixer lamp with
+            // real state behind it, so it is the one that stays discoverable.
             lamp(physicalDeck == 1 ? 63 : 67, .white, lit: enabled)
         }
 
-        // Everything else sits dim. 0.3.10 exposes no per-control state for these, so
-        // nothing may go bright - dim only, which keeps the mixer looking like a lit
-        // panel without ever claiming activity that is not happening.
+        // Everything else is dark. 0.3.10 exposes no per-control state for these, so a
+        // lamp here would be permanently stuck on something that never changes - and
+        // headphone Cue, the one mixer lamp with real state, is handled above.
         for buttonID in [60, 61, 62, 64, 65, 66, 68, 69, 70, 71, 72] {
-            lamp(buttonID, .blue, lit: false)
+            guard let lampID = MX2MixerLamp.forButton(buttonID),
+                  let index = MX2LEDLayout.byteIndex(id: lampID) else { continue }
+            frame[index] = 0
         }
     }
 
@@ -392,14 +391,16 @@ public struct MX2LEDRenderer: Sendable {
             }
         }
 
-        // Indicators with no feedback source show a dim magenta "no signal" tint
-        // rather than going black. Two reasons: an unmapped control is then visible at
-        // a glance instead of indistinguishable from a working control in its off state,
-        // and a totally dark panel reads as "broken" rather than "idle". They are
-        // deliberately DIM and deliberately not a colour any real deck state uses.
+        // Unmapped controls are fully dark.
+        //
+        // This reverses an earlier choice that tinted them dim magenta so an unmapped
+        // control was visible at a glance. The owner preferred a black panel: a lamp
+        // that never responds to anything is noise, and a dark control reads as "not
+        // wired" more honestly than a colour that means nothing on this hardware.
+        // Anything that lights must now correspond to state we actually track.
         for control in [MX2Control.fx1, .fx2, .fx3, .fx4, .favorite, .add,
                         .preview, .view, .flux, .reverse, .turntable, .jog] {
-            set(control, .dimUnmapped, .dim)
+            set(control, .off, .off)
         }
         set(.shift, .white, context.shiftPressed ? .lit : .off)
         set(.sync, .blue, deck.sync ? .lit : .dim)
