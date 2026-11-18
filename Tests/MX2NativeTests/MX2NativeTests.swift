@@ -1,6 +1,6 @@
 import XCTest
 @testable import MX2Native
-import BridgeCore
+import IndirectInputCore
 import MX2Feedback
 
 final class MX2NativeTests: XCTestCase {
@@ -87,7 +87,7 @@ final class MX2NativeTests: XCTestCase {
         // button, and CH1/CH2 kept stale values. Nothing covered this because the older
         // test only ever pressed twice within one pair.
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
 
         // Cue CH1 on pair 1/2, then move to pair 3/4.
@@ -112,7 +112,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testCueAndHeadphoneToggleOnSuccessivePresses() {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         controller.handle(.button(.cue(.left), pressed: true))
         controller.handle(.button(.cue(.left), pressed: false))
@@ -128,7 +128,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testKeyLockAndFluxSendTrackedSwitchStatesPerDeck() {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for control in [MX2Control.keyLock(.left), .flux(.left)] {
             controller.handle(.button(control, pressed: true))
@@ -169,7 +169,7 @@ final class MX2NativeTests: XCTestCase {
         // not lose the state. Only the GFX toggle drives it — deck FX 1-4 are separate
         // physical buttons (bits 60/61) and must not share this switch.
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for (firstDeck, enabled) in [(1, Int32(1)), (3, Int32(1)), (1, Int32(0))] {
             controller.mapping.firstDeck = firstDeck
@@ -193,7 +193,7 @@ final class MX2NativeTests: XCTestCase {
         // Switch per channel, and the owner chose the GFX toggle to own it. If FX 1
         // also toggled it, pressing FX 1 then the GFX toggle would cancel out.
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
 
         // Deck FX buttons must be silent.
@@ -218,7 +218,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testViewCyclesOneSharedBrowserModeOnPressOnly() {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for (firstDeck, side) in [(1, MX2Side.left), (1, .right), (3, .left),
                                   (3, .right), (1, .left), (1, .right)] {
@@ -298,7 +298,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testShiftPatternPadsToggleLaneMuteWithoutSelectingOrTriggering() {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for side in [MX2Side.left, .right] {
             controller.handle(.button(.bank(side, .pattern), pressed: true))
@@ -337,7 +337,7 @@ final class MX2NativeTests: XCTestCase {
 
     @MainActor
     func testHeldControlsReleaseTheirOriginalRouteAfterBankShiftAndDeckChanges() {
-        let cases: [(MX2Native.MX2Control, MX2PadBank, String, [BridgeCore.OSCArgument])] = [
+        let cases: [(MX2Native.MX2Control, MX2PadBank, String, [IndirectInputCore.OSCArgument])] = [
             (.pad(.left, 3), .hotcues, "/Syndicate/Deck/1/HotCue", [.int(3), .int(0)]),
             (.pad(.left, 8), .loops, "/Syndicate/Deck/1/SlipLoop/Four", [.int(0)]),
             (.cue(.left), .hotcues, "/Syndicate/Deck/1/Cue", [.int(0)]),
@@ -346,7 +346,7 @@ final class MX2NativeTests: XCTestCase {
         for (control, bank, address, arguments) in cases {
             let controller = MX2NativeController()
             controller.banks = [bank, .hotcues]
-            var messages: [BridgeCore.OSCMessage] = []
+            var messages: [IndirectInputCore.OSCMessage] = []
             controller.onControl = { messages.append($0) }
             controller.handle(.button(control, pressed: true))
             XCTAssertEqual(messages.first?.address, address)
@@ -365,7 +365,7 @@ final class MX2NativeTests: XCTestCase {
             let controller = MX2NativeController()
             controller.banks = [bank, .hotcues]
             controller.shift = [true, false]
-            var messages: [BridgeCore.OSCMessage] = []
+            var messages: [IndirectInputCore.OSCMessage] = []
             controller.onControl = { messages.append($0) }
             controller.handle(.button(.pad(.left, 2), pressed: true))
             controller.shift = [false, false]
@@ -379,7 +379,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testJogBendReleaseStaysOnOriginalDeckAfterPairChanges() async throws {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         controller.handle(.jog(.right, delta: -12))
         controller.mapping.firstDeck = 3
@@ -393,7 +393,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testJogZeroSendsOneReleaseAndCancelsPendingRelease() async throws {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         controller.handle(.jog(.left, delta: 12))
         controller.mapping.firstDeck = 3
@@ -408,7 +408,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testNewJogDeckReleasesOldBendBeforeStartingNewBend() async throws {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         controller.handle(.jog(.left, delta: 12))
         controller.mapping.firstDeck = 3
@@ -435,7 +435,7 @@ final class MX2NativeTests: XCTestCase {
                             let event = MX2InputEvent.button(.pad(side, pad), pressed: pressed)
                             let hotcues = mapping.route(event, bank: [.hotcues, .hotcues],
                                                         shift: [shifted, shifted], jogMode: [false, false])
-                            let expected: [BridgeCore.OSCMessage] = shifted
+                            let expected: [IndirectInputCore.OSCMessage] = shifted
                                 ? (pressed ? [OSCMessage(address: root + "/SetCueLoop", integer: Int32(pad))] : [])
                                 : [OSCMessage(address: root + "/HotCue",
                                               arguments: [.int(Int32(pad)), .int(pressed ? 1 : 0)])]
@@ -454,7 +454,7 @@ final class MX2NativeTests: XCTestCase {
     @MainActor
     func testAllFourBankButtonsAreLocalAndIndependent() {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for bank in MX2PadBank.allCases {
             controller.handle(.button(.bank(.left, bank), pressed: true))
@@ -516,9 +516,9 @@ final class MX2NativeTests: XCTestCase {
         let client = MX2FeedbackClient()
         var image: [UInt8] = []
         client.onRGB = { image = $0 }
-        client.receivePacket(BridgeCore.OSCMessage(
+        client.receivePacket(IndirectInputCore.OSCMessage(
             address: "/Syndicate/Deck/1/Playing", integer: 1).packet)
-        client.receivePacket(BridgeCore.OSCMessage(
+        client.receivePacket(IndirectInputCore.OSCMessage(
             address: "/Syndicate/Deck/1/Cues",
             arguments: (1...8).flatMap { slot in
                 [.int(Int32(slot)), .string("Cue \(slot)")]
@@ -599,7 +599,7 @@ enum WireKind {
     case cueHold(Int32, Int32)           // §14.6 HotCue: i cue 1–8, i 1 press / 0 release
     case laneSet(Int32, String, Float)   // §14.8 LaneSet: i lane 1–8, s control, f value
 
-    var arguments: [BridgeCore.OSCArgument] {
+    var arguments: [IndirectInputCore.OSCArgument] {
         switch self {
         case let .trigger(v), let .switch(v), let .hold(v), let .index(v), let .step(v):
             return [.int(v)]
@@ -616,7 +616,7 @@ enum WireKind {
 struct Wire {
     let path: String   // without the /Syndicate root
     let kind: WireKind
-    var message: BridgeCore.OSCMessage { BridgeCore.OSCMessage(address: "/Syndicate" + path, arguments: kind.arguments) }
+    var message: IndirectInputCore.OSCMessage { IndirectInputCore.OSCMessage(address: "/Syndicate" + path, arguments: kind.arguments) }
 }
 
 func wire(_ path: String, _ kind: WireKind) -> Wire { Wire(path: path, kind: kind) }
@@ -942,7 +942,7 @@ final class MX2MappingAuditTests: XCTestCase {
 
     // MARK: Routing under an audit context
 
-    func route(_ event: MX2Native.MX2InputEvent, _ context: AuditContext) -> [BridgeCore.OSCMessage] {
+    func route(_ event: MX2Native.MX2InputEvent, _ context: AuditContext) -> [IndirectInputCore.OSCMessage] {
         let decks = 1...4
         let pads = 1...8
         var mapping = MX2Mapping()
@@ -1122,7 +1122,7 @@ final class MX2MappingAuditTests: XCTestCase {
     @MainActor
     func testKeyLockAndFluxAreTrackedSwitchesThatCanTurnOff() async {
         let controller = MX2NativeController()
-        var messages: [BridgeCore.OSCMessage] = []
+        var messages: [IndirectInputCore.OSCMessage] = []
         controller.onControl = { messages.append($0) }
         for (control, path) in [(MX2Control.keyLock(.left), "/Syndicate/Deck/1/PitchPreserve"),
                                 (MX2Control.flux(.left), "/Syndicate/Deck/1/CueSlip")] {
@@ -1132,7 +1132,7 @@ final class MX2MappingAuditTests: XCTestCase {
             controller.handle(.button(control, pressed: true))
             controller.handle(.button(control, pressed: false))
             XCTAssertEqual(messages, [1, 0].map {
-                BridgeCore.OSCMessage(address: path, integer: $0)
+                IndirectInputCore.OSCMessage(address: path, integer: $0)
             }, "\(describe(control)) must turn on then off, and never on release")
         }
     }
@@ -1151,9 +1151,9 @@ final class MX2MappingAuditTests: XCTestCase {
                 ? AuditContext(pitchPreserve: false)
                 : AuditContext(cueSlip: false)
             XCTAssertEqual(route(.button(control, pressed: true), on),
-                           [BridgeCore.OSCMessage(address: "/Syndicate" + path, integer: 1)])
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate" + path, integer: 1)])
             XCTAssertEqual(route(.button(control, pressed: true), off),
-                           [BridgeCore.OSCMessage(address: "/Syndicate" + path, integer: 0)])
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate" + path, integer: 0)])
             XCTAssertEqual(route(.button(control, pressed: false), on), [],
                            "a Switch is pushed by the press, never by the release")
         }
@@ -1165,18 +1165,18 @@ final class MX2MappingAuditTests: XCTestCase {
         for side in [MX2Native.MX2Side.left, .right] {
             let deck = 1 + side.rawValue
             XCTAssertEqual(route(.button(.cue(side), pressed: true), AuditContext()),
-                           [BridgeCore.OSCMessage(address: "/Syndicate/Deck/\(deck)/Cue", integer: 1)],
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate/Deck/\(deck)/Cue", integer: 1)],
                            "deck Cue is Hold: press sends 1")
             XCTAssertEqual(route(.button(.cue(side), pressed: false), AuditContext()),
-                           [BridgeCore.OSCMessage(address: "/Syndicate/Deck/\(deck)/Cue", integer: 0)],
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate/Deck/\(deck)/Cue", integer: 0)],
                            "deck Cue is Hold and must always release")
             XCTAssertEqual(route(.button(.headphone(side), pressed: true),
                                  AuditContext(headphoneCue: true)),
-                           [BridgeCore.OSCMessage(address: "/Syndicate/Mixer/CH\(deck)/Cue", integer: 1)],
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate/Mixer/CH\(deck)/Cue", integer: 1)],
                            "headphone Cue is a Switch: this press turned it on")
             XCTAssertEqual(route(.button(.headphone(side), pressed: true),
                                  AuditContext(headphoneCue: false)),
-                           [BridgeCore.OSCMessage(address: "/Syndicate/Mixer/CH\(deck)/Cue", integer: 0)],
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate/Mixer/CH\(deck)/Cue", integer: 0)],
                            "headphone Cue is a Switch: this press turned it off")
             XCTAssertEqual(route(.button(.headphone(side), pressed: false), AuditContext()), [],
                            "a Switch has no release message")
@@ -1314,10 +1314,10 @@ final class MX2MappingAuditTests: XCTestCase {
     func testAnalogScalingIs12BitAndTempoIsBipolar() {
         for raw in [UInt16(0), 1024, 2048, 4095] {
             XCTAssertEqual(route(.analog(.volume(.left), value: raw), AuditContext()),
-                           [BridgeCore.OSCMessage(address: "/Syndicate/Mixer/CH1/Volume",
+                           [IndirectInputCore.OSCMessage(address: "/Syndicate/Mixer/CH1/Volume",
                                        float: Float(raw) / 4095)])
             let tempo = route(.analog(.tempo(.left), value: raw), AuditContext())
-            XCTAssertEqual(tempo, [BridgeCore.OSCMessage(address: "/Syndicate/Deck/1/TempoSlider",
+            XCTAssertEqual(tempo, [IndirectInputCore.OSCMessage(address: "/Syndicate/Deck/1/TempoSlider",
                                               float: Float(raw) / 4095 * 2 - 1)])
             XCTAssertEqual(tempo.first?.arguments.first, .float(Float(raw) / 4095 * 2 - 1),
                            "TempoSlider must be a float in −1…+1, not a 0…1 Value")

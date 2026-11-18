@@ -1,22 +1,20 @@
 // swift-tools-version: 6.0
 import PackageDescription
 
+// Module names describe the *protocol*, not the product: the app is Indirect Input, but
+// MX2Native and MX2Feedback are about the Traktor MX2 and its RGB feedback, so renaming
+// them would cost every import and buy nothing.
 let package = Package(
     name: "IndirectInput",
     platforms: [.macOS(.v13)],
     targets: [
         .target(name: "MX2Feedback", path: "Sources/MX2Feedback"),
-        .target(name: "MX2Native", dependencies: ["BridgeCore", "MX2Feedback"], path: "Sources/MX2Native"),
-        .target(name: "BridgeCore", path: "Sources/BridgeCore"),
+        .target(name: "MX2Native", dependencies: ["IndirectInputCore", "MX2Feedback"], path: "Sources/MX2Native"),
+        .target(name: "IndirectInputCore", path: "Sources/IndirectInputCore"),
         .executableTarget(
-            name: "MX2SyndicateBridge",
-            dependencies: ["BridgeCore", "MX2Native", "MX2Feedback"],
-            path: "Sources/MX2SyndicateBridge"
-        ),
-        .executableTarget(
-            name: "MX2CLITest",
-            dependencies: ["BridgeCore"],
-            path: "Sources/MX2CLITest"
+            name: "IndirectInputApp",
+            dependencies: ["IndirectInputCore", "MX2Native", "MX2Feedback"],
+            path: "Sources/IndirectInputApp"
         ),
         .testTarget(
             name: "MX2NativeTests",
@@ -29,9 +27,9 @@ let package = Package(
             path: "Tests/MX2FeedbackTests"
         ),
         .testTarget(
-            name: "MX2SyndicateBridgeTests",
-            dependencies: ["BridgeCore"],
-            path: "Tests/MX2SyndicateBridgeTests"
+            name: "IndirectInputAppTests",
+            dependencies: ["IndirectInputCore"],
+            path: "Tests/IndirectInputAppTests"
         )
     ]
 )

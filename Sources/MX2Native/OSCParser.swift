@@ -1,5 +1,5 @@
 import Foundation
-import BridgeCore
+import IndirectInputCore
 
 public enum OSCParseError: Error {
     case malformed

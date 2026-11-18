@@ -1,7 +1,7 @@
 import XCTest
-import BridgeCore
+import IndirectInputCore
 
-final class BridgeCoreTests: XCTestCase {
+final class IndirectInputCoreTests: XCTestCase {
     func testFloatAndMultiArgumentOSCMessageEncoding() {
         let message = OSCMessage(address: "/Deck/1/HotCue",
                                  arguments: [.int(3), .int(1)])

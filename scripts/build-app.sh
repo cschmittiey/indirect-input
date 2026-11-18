@@ -9,11 +9,11 @@ fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$root/dist/Indirect Input.app"
 
-swift build --package-path "$root" -c release --product MX2SyndicateBridge
+swift build --package-path "$root" -c release --product IndirectInputApp
 bin="$(swift build --package-path "$root" -c release --show-bin-path)"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-cp "$bin/MX2SyndicateBridge" "$app/Contents/MacOS/Indirect Input"
+cp "$bin/IndirectInputApp" "$app/Contents/MacOS/Indirect Input"
 cp "$root/Resources/Info.plist" "$app/Contents/Info.plist"
 cp "$root/Resources/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 chmod +x "$app/Contents/MacOS/Indirect Input"

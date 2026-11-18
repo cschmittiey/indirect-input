@@ -1,6 +1,6 @@
 import XCTest
 @testable import MX2Native
-import BridgeCore
+import IndirectInputCore
 
 final class MX2MappingTests: XCTestCase {
     func testPureMappingUsesSuppliedAbsolutePositionAndDefendsValueRange() {

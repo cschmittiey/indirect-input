@@ -1,5 +1,5 @@
 import Foundation
-import BridgeCore
+import IndirectInputCore
 
 @MainActor
 public final class MX2NativeController {

@@ -1,5 +1,5 @@
 import Foundation
-import BridgeCore
+import IndirectInputCore
 
 public struct MX2Mapping: Sendable {
     public var firstDeck: Int = 1

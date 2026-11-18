@@ -1,6 +1,6 @@
 import Foundation
 import Network
-import BridgeCore
+import IndirectInputCore
 
 @MainActor
 final class OSCSender {

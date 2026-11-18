@@ -1,21 +1,13 @@
 import AppKit
 import SwiftUI
-import BridgeCore
+import IndirectInputCore
 import MX2Native
 import MX2Feedback
 
 @MainActor
 final class BridgeModel: ObservableObject {
-    @Published var midiConnected = false
-    @Published var midiStatus = "Starting MIDI"
     @Published var host = "127.0.0.1"
     @Published var port = "9090"
-    @Published var cc = "16"
-    @Published var midiChannel = 0
-    @Published var shiftedNavigation = false
-    @Published var loadOnPress = false
-    @Published var loadDeck = 1
-    @Published var lastInput = "No encoder input yet"
     @Published var lastOutput = "No OSC sent yet"
     @Published var eventCount = 0
     @Published var flash = false
@@ -30,13 +22,10 @@ final class BridgeModel: ObservableObject {
     @Published var deckPair = 1
     @Published var padBank: MX2PadBank = .hotcues
 
-    // Retained for legacy helpers only: even construction registers a CoreMIDI client.
-    private lazy var midi = MIDIMonitor()
     let osc = OSCSender()
     let native = MX2NativeController()
     let feedback = MX2FeedbackClient()
 
-    private var shiftPressed = false
     private let nativeLogURL = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent(".local/state/indirect-input/native-events.log")
 
@@ -60,7 +49,6 @@ final class BridgeModel: ObservableObject {
         host = defaults.string(forKey: "OSCHost") ?? host
         port = defaults.string(forKey: "OSCPort") ?? port
         guard startServices else { return }
-        // The MIDI path is inert pending removal; retain its types and helpers for now.
         osc.onError = { [weak self] error in
             self?.lastOutput = "UDP error: \(error)"
             self?.nativeOutput = "UDP error: \(error)"
@@ -136,29 +124,7 @@ final class BridgeModel: ObservableObject {
         osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
     }
 
-    func handle(_ event: MX2MIDIEvent) {
-        switch event {
-        case let .note(channel, number, velocity):
-            lastInput = "Ch \(channel) · Note \(number) = \(velocity)"
-            guard channel == midiChannel || midiChannel == 0, number == 12 else {
-                if loadOnPress, channel == midiChannel || midiChannel == 0, number == 30, velocity > 0 {
-                    send(BridgeRouting.loadMessage(deck: loadDeck))
-                }
-                return
-            }
-            shiftPressed = velocity > 0
-        case let .controlChange(channel, controller, value):
-            lastInput = "Ch \(channel) · CC \(controller) = \(value)"
-            guard channel == midiChannel || midiChannel == 0,
-                  controller == UInt8(cc),
-                  let event = BrowseEvent(channel: channel,
-                                          controller: controller,
-                                          value: value) else { return }
-            send(BridgeRouting.message(for: event, shifted: shiftedNavigation && shiftPressed))
-        }
-    }
-
-    private func send(_ outgoing: BridgeCore.OSCMessage) {
+    private func send(_ outgoing: IndirectInputCore.OSCMessage) {
         osc.send(outgoing)
         eventCount += 1
         lastOutput = "\(outgoing.address) · \(outgoing.integer)"
@@ -198,14 +164,6 @@ final class BridgeModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([nativeLogURL])
     }
 
-    func selectTestDevice() {
-        midi.reconnect()
-    }
-
-    func selectMX2() {
-        midi.selectDevice(named: "Traktor MX2")
-    }
-
     func setDeckPair(_ pair: Int) {
         deckPair = pair
         native.mapping.firstDeck = pair
@@ -220,7 +178,7 @@ final class BridgeModel: ObservableObject {
         feedback.banks = [mode, mode]
     }
 
-    static func describe(_ message: BridgeCore.OSCMessage) -> String {
+    static func describe(_ message: IndirectInputCore.OSCMessage) -> String {
         message.arguments.map {
             switch $0 {
             case let .int(value): return String(value)

@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct MX2SyndicateBridgeApp: App {
+struct IndirectInputAppApp: App {
     @StateObject private var model = BridgeModel()
 
     var body: some Scene {

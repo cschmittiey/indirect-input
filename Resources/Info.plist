@@ -5,7 +5,7 @@
   <key>CFBundleDevelopmentRegion</key><string>en</string>
   <key>CFBundleDisplayName</key><string>Indirect Input</string>
   <key>CFBundleExecutable</key><string>Indirect Input</string>
-  <key>CFBundleIdentifier</key><string>mx.ellie.MX2SyndicateBridge</string>
+  <key>CFBundleIdentifier</key><string>mx.ellie.IndirectInput</string>
   <key>CFBundleName</key><string>Indirect Input</string>
   <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundleIconName</key><string>AppIcon</string>
