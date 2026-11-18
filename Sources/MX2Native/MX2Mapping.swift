@@ -15,8 +15,8 @@ public struct MX2Mapping: Sendable {
                       bank: [MX2PadBank],
                       shift: [Bool],
                       jogMode: [Bool],
-                      cueActive: [Bool] = [false, false],
-                      headphoneCue: [Bool] = [false, false],
+                      cueActive: [Int: Bool] = [:],
+                      headphoneCue: [Int: Bool] = [:],
                       pitchPreserve: [Int: Bool] = [:],
                       cueSlip: [Int: Bool] = [:],
                       fxEnabled: [Int: Bool] = [:],
@@ -63,7 +63,7 @@ public struct MX2Mapping: Sendable {
 
     private func button(_ control: MX2Control, pressed: Bool,
                         bank: [MX2PadBank], shift: [Bool], jogMode: [Bool],
-                        cueActive: [Bool], headphoneCue: [Bool],
+                        cueActive: [Int: Bool], headphoneCue: [Int: Bool],
                         pitchPreserve: [Int: Bool], cueSlip: [Int: Bool],
                         fxEnabled: [Int: Bool], browserMode: Int,
                         samplerMute: [Int: [Int: Bool]]) -> [OSCMessage] {
@@ -145,7 +145,7 @@ public struct MX2Mapping: Sendable {
             return [message("/Mixer/CH\(deck)/FX", int: fxEnabled[deck, default: false] ? 1 : 0)]
         case let .headphone(side):
             guard pressed else { return [] }
-            return [message("/Mixer/CH\(self.deck(side))/Cue", int: headphoneCue[side.rawValue] ? 1 : 0)]
+            return [message("/Mixer/CH\(self.deck(side))/Cue", int: headphoneCue[self.deck(side), default: false] ? 1 : 0)]
         case .globalFX:
             // Hardware GFX 1–4 select a Quick Effect preset for both decks.
             // OSC 0.3.10 §14.9 has no preset selector: FX is an insert-chain

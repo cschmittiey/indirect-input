@@ -81,6 +81,35 @@ final class MX2NativeTests: XCTestCase {
     }
 
     @MainActor
+    func testHeadphoneCueStateFollowsTheLogicalDeckAcrossAPairChange() {
+        // Regression: headphoneCue was keyed by physical side while the mixer routes by
+        // deck number. After switching to pair 3/4 the CH3 lamp inverted relative to the
+        // button, and CH1/CH2 kept stale values. Nothing covered this because the older
+        // test only ever pressed twice within one pair.
+        let controller = MX2NativeController()
+        var messages: [BridgeCore.OSCMessage] = []
+        controller.onControl = { messages.append($0) }
+
+        // Cue CH1 on pair 1/2, then move to pair 3/4.
+        controller.mapping.firstDeck = 1
+        controller.handle(.button(.headphone(.left), pressed: true))
+        controller.mapping.firstDeck = 3
+
+        // A fresh press on the left button now addresses CH3 and must read as ON
+        // (a toggle from false), not inherit CH1's state.
+        messages.removeAll()
+        controller.handle(.button(.headphone(.left), pressed: true))
+        XCTAssertEqual(messages.map(\.address), ["/Syndicate/Mixer/CH3/Cue"])
+        XCTAssertEqual(messages.map(\.integer), [1], "CH3 must start OFF, not inherit CH1")
+
+        // And the right side of the new pair is its own state.
+        messages.removeAll()
+        controller.handle(.button(.headphone(.right), pressed: true))
+        XCTAssertEqual(messages.map(\.address), ["/Syndicate/Mixer/CH4/Cue"])
+        XCTAssertEqual(messages.map(\.integer), [1])
+    }
+
+    @MainActor
     func testCueAndHeadphoneToggleOnSuccessivePresses() {
         let controller = MX2NativeController()
         var messages: [BridgeCore.OSCMessage] = []
@@ -923,8 +952,8 @@ final class MX2MappingAuditTests: XCTestCase {
             bank: [context.bank, context.bank],
             shift: [context.shift, context.shift],
             jogMode: [context.jogMode, context.jogMode],
-            cueActive: [context.cueActive, context.cueActive],
-            headphoneCue: [context.headphoneCue, context.headphoneCue],
+            cueActive: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueActive) }),
+            headphoneCue: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.headphoneCue) }),
             pitchPreserve: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.pitchPreserve) }),
             cueSlip: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueSlip) }),
             fxEnabled: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.fxEnabled) }),

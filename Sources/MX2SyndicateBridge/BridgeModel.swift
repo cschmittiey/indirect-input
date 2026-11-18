@@ -112,6 +112,11 @@ final class BridgeModel: ObservableObject {
         feedback.onState = { [weak self] state in
             guard let self else { return }
             self.feedbackRenders += 1
+            // Seed the jog seek origin from real playback position. Without this the
+            // first touched platter turn seeks relative to the start of the track.
+            for deck in state.deckNumbers {
+                self.native.seedJogPosition(deck: deck, progress: state[deck: deck].progress)
+            }
             self.feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters · \(self.feedbackRenders) frames"
             // Logging every frame would swamp the log at meter rates, so log the
             // first few and then every 50th: enough to see feedback live, cheap.

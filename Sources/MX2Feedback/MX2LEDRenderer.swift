@@ -144,6 +144,28 @@ public enum MX2LEDLayout {
     public static func index(physicalDeck: Int, control: MX2Control) -> Int {
         id(physicalDeck: physicalDeck, control: control) - 1
     }
+
+    /// Mixer lamps: one global band, 61-73 (buttons 60-72 at a measured +1 offset).
+    public static let mixerLampRange: ClosedRange<Int> = 61...73
+
+    /// Every LED ID band that belongs to a physical deck, in one place.
+    ///
+    /// This table exists because the frame used to be composed by copying hard-coded
+    /// byte slices, and anything outside those slices was silently dropped - which is
+    /// exactly how the mixer lamps stayed dark while the renderer was building them
+    /// correctly. A band that is not listed here never reaches the hardware, so adding
+    /// a lamp region means adding a line here, not finding a copy loop.
+    ///
+    /// Bands are 1-based firmware IDs and must not overlap between decks or with
+    /// `mixerLampRange`.
+    public static func deckBands(forPhysicalDeck deck: Int) -> [ClosedRange<Int>] {
+        let base = deckBase(deck)
+        return [
+            base...(base + controlsPerDeck - 1),                       // deck controls
+            undershellBase(deck)...(undershellBase(deck) + 6 - 1),     // under-shell glow
+            meterBase(deck)...(meterBase(deck) + meterCount - 1),      // channel meter
+        ]
+    }
 }
 
 /// Controls inside one deck's 30-LED block, as offsets from the deck base.

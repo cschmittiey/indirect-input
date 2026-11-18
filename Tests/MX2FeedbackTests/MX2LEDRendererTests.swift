@@ -577,3 +577,51 @@ final class MX2LEDRendererTests: XCTestCase {
                        renderer.render(state: state, context: context))
     }
 }
+
+// MARK: - Frame composition
+
+extension MX2LEDRendererTests {
+    /// Every LED ID must belong to exactly one composed band.
+    ///
+    /// The frame used to be assembled by copying hard-coded byte slices, and any ID
+    /// outside them was silently dropped. That is how the mixer lamps stayed dark while
+    /// the renderer was populating them correctly, and it would hide the next band just
+    /// as quietly. This asserts the band table covers the deck and mixer regions with no
+    /// gaps and no overlaps.
+    func testDeckAndMixerBandsPartitionTheLedRegionsWithoutGapsOrOverlaps() {
+        var owner: [Int: String] = [:]
+        var overlaps: [String] = []
+
+        func claim(_ range: ClosedRange<Int>, _ label: String) {
+            for id in range {
+                if let existing = owner[id] {
+                    overlaps.append("id \(id) claimed by \(existing) and \(label)")
+                }
+                owner[id] = label
+            }
+        }
+
+        for deck in 1...2 {
+            for (i, band) in MX2LEDLayout.deckBands(forPhysicalDeck: deck).enumerated() {
+                claim(band, "deck\(deck).band\(i)")
+            }
+        }
+        claim(MX2LEDLayout.mixerLampRange, "mixer")
+
+        XCTAssertTrue(overlaps.isEmpty, "bands overlap: \(overlaps)")
+
+        // The bands that carry real state must all be claimed. Not asserted: every ID
+        // 1-105, because some genuinely have no lamp assignment.
+        for deck in 1...2 {
+            XCTAssertNotNil(owner[MX2LEDLayout.deckBase(deck)], "deck \(deck) control block")
+            XCTAssertNotNil(owner[MX2LEDLayout.undershellBase(deck)], "deck \(deck) under-shell")
+            XCTAssertNotNil(owner[MX2LEDLayout.meterBase(deck)], "deck \(deck) meter")
+        }
+        // CUE and PLAY specifically: the lamps the owner noticed were dead.
+        XCTAssertNotNil(owner[MX2LEDLayout.id(physicalDeck: 1, control: .cue)], "deck A CUE")
+        XCTAssertNotNil(owner[MX2LEDLayout.id(physicalDeck: 1, control: .play)], "deck A PLAY")
+        XCTAssertNotNil(owner[MX2LEDLayout.id(physicalDeck: 2, control: .cue)], "deck B CUE")
+        XCTAssertNotNil(owner[61], "first mixer lamp")
+        XCTAssertNotNil(owner[73], "last mixer lamp")
+    }
+}

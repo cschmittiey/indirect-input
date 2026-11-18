@@ -22,8 +22,15 @@ public final class MX2NativeController {
     // Mapping sensitivity, not an OSC unit: 960 ticks/revolution, 1% track/turn.
     // Accumulating full signed deltas makes faster spins seek proportionally more.
     private let jogTicksPerTrack: Double = 96_000
-    public var cueActive: [Bool] = [false, false]
-    public var headphoneCue: [Bool] = [false, false]
+    // Toggle state lives in TWO different key spaces, and mixing them is a real bug:
+    //   - cueActive / headphoneCue / pitchPreserve / cueSlip / fxEnabled / samplerMute
+    //     are keyed by LOGICAL DECK (1-4), so switching the deck pair preserves them.
+    //   - banks / shift / jogMode are keyed by PHYSICAL SIDE (0-1), because a bank
+    //     selector physically belongs to the left or right deck.
+    // headphoneCue used to be a [Bool] indexed by side, which meant switching to pair
+    // 3/4 left CH3 inverted relative to the button while CH1/CH2 kept stale values.
+    public var cueActive: [Int: Bool] = [:]
+    public var headphoneCue: [Int: Bool] = [:]
     // Switch state is keyed by logical deck, so changing deck pairs preserves it.
     public var pitchPreserve: [Int: Bool] = [:]
     public var cueSlip: [Int: Bool] = [:]
@@ -48,6 +55,15 @@ public final class MX2NativeController {
 
     public func start() { device.start() }
 
+    /// Seed the seek origin from playback progress, so grabbing the platter moves the
+    /// track relative to where it actually is rather than relative to the start.
+    /// Called whenever Syndicate reports `Deck/{n}/Progress`. Non-finite or
+    /// out-of-range values are clamped rather than trusted.
+    public func seedJogPosition(deck: Int, progress: Double) {
+        guard (1...4).contains(deck) else { return }
+        jogPosition[deck] = MX2Mapping.clampedJogPosition(progress)
+    }
+
     func handle(_ event: MX2InputEvent) {
         if case let .button(control, pressed) = event {
             switch control {
@@ -60,7 +76,8 @@ public final class MX2NativeController {
             case let .jogMode(side):
                 if pressed { jogMode[side.rawValue] = true }
             case let .cue(side):
-                cueActive[side.rawValue] = pressed // Syndicate Deck/Cue is Hold.
+                // Hold semantics, keyed by logical deck so a pair change cannot strand it.
+                cueActive[mapping.deck(side), default: false] = pressed
             case let .keyLock(side):
                 if pressed { pitchPreserve[mapping.deck(side), default: false].toggle() }
             case let .flux(side):
@@ -75,7 +92,7 @@ public final class MX2NativeController {
             case .view:
                 if pressed { browserMode = (browserMode + 1) % 3 }
             case let .headphone(side):
-                if pressed { headphoneCue[side.rawValue].toggle() }
+                if pressed { headphoneCue[mapping.deck(side), default: false].toggle() }
             default: break
             }
         }
@@ -84,6 +101,11 @@ public final class MX2NativeController {
             let deck = mapping.deck(side)
             // Decoder already unwraps the 960-tick platter counter. Do not wrap
             // the track position: hitting an end clamps and reversal moves away.
+            //
+            // The starting point is the deck's CURRENT playback progress, not zero.
+            // Without the seed, the first touched turn jumps toward the start of the
+            // track, which feels like a bug and is one. `seedJogPosition` is refreshed
+            // from Syndicate's Progress feedback whenever that arrives.
             let position = MX2Mapping.clampedJogPosition(jogPosition[deck, default: 0])
             jogPosition[deck] = MX2Mapping.clampedJogPosition(position + Double(delta) / jogTicksPerTrack)
         }
