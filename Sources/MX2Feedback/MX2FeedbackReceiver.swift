@@ -39,9 +39,6 @@ public final class MX2FeedbackReceiver {
     public var onStateChange: ((MX2FeedbackState) -> Void)?
     /// Fires on the main actor for bind failures and malformed packets.
     public var onError: ((String) -> Void)?
-    /// Fires on the main actor when a nonzero `/Syndicate/Feedback/Resend` arrives;
-    /// the app should push its current state back to Syndicate.
-    public var onResendRequested: (() -> Void)?
 
     public let port: UInt16
 
@@ -111,8 +108,6 @@ public final class MX2FeedbackReceiver {
         for message in messages {
             switch state.apply(message) {
             case .changed: result = .changed
-            case .resendRequested:
-                if result != .changed { result = .resendRequested }
             case .unchanged:
                 if result == .ignored { result = .unchanged }
             case .ignored:
@@ -122,7 +117,6 @@ public final class MX2FeedbackReceiver {
 
         switch result {
         case .changed: onStateChange?(state)
-        case .resendRequested: onResendRequested?()
         case .unchanged, .ignored: break
         }
         return result

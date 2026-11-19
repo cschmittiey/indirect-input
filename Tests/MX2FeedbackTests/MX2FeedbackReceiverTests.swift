@@ -187,18 +187,6 @@ final class MX2FeedbackReceiverTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 
-    func testResendCallbackFiresOnlyForNonzeroRequest() {
-        let receiver = MX2FeedbackReceiver(port: 0)
-        var resends = 0
-        receiver.onResendRequested = { resends += 1 }
-
-        receiver.ingest(oscMessage("/Syndicate/Feedback/Resend") { $0.int(0) })
-        XCTAssertEqual(resends, 0)
-        receiver.ingest(oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) })
-        XCTAssertEqual(resends, 1)
-        XCTAssertEqual(receiver.state.resendRequests, 1)
-    }
-
     func testIngestReturnsApplyResult() {
         let receiver = MX2FeedbackReceiver(port: 0)
         XCTAssertEqual(receiver.ingest(oscMessage("/Syndicate/Deck/1/Playing") { $0.int(1) }),
@@ -206,8 +194,6 @@ final class MX2FeedbackReceiverTests: XCTestCase {
         XCTAssertEqual(receiver.ingest(oscMessage("/Syndicate/Deck/1/Playing") { $0.int(1) }),
                        .unchanged)
         XCTAssertEqual(receiver.ingest(oscMessage("/nope")), .ignored)
-        XCTAssertEqual(receiver.ingest(oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) }),
-                       .resendRequested)
     }
 
     func testResetClearsStateAndCounters() {

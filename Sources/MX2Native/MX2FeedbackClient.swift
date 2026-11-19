@@ -5,7 +5,6 @@ import MX2Feedback
 public final class MX2FeedbackClient {
     public var onStatus: ((String) -> Void)?
     public var onRGB: (([UInt8]) -> Void)?
-    public var onResend: (() -> Void)?
     public var onState: ((MX2FeedbackState) -> Void)?
     public var banks: [MX2PadMode] = [.hotcues, .hotcues] {
         didSet { publish() }
@@ -29,7 +28,6 @@ public final class MX2FeedbackClient {
 
     public init() {
         receiver.onError = { [weak self] text in self?.onStatus?(text) }
-        receiver.onResendRequested = { [weak self] in self?.onResend?() }
         receiver.onStateChange = { [weak self] state in
             guard let self else { return }
             self.onState?(state)
@@ -51,6 +49,7 @@ public final class MX2FeedbackClient {
         publish()
     }
 
+    @discardableResult
     public func receivePacket(_ data: Data) -> MX2FeedbackState.ApplyResult {
         let result = receiver.ingest(data)
         if result == .ignored {

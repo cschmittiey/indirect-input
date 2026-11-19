@@ -211,12 +211,15 @@ final class MX2FeedbackStateTests: XCTestCase {
         XCTAssertEqual(state, MX2FeedbackState())
     }
 
-    func testResendRequestDetectedOnlyWhenNonzero() {
+    /// `Feedback/Resend` is a route Syndicate receives, never one it sends back, so
+    /// an inbound one is not feedback.
+    func testInboundResendIsIgnored() {
         var state = MX2FeedbackState()
-        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) }),
-                       .resendRequested)
-        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Feedback/Resend") { $0.int(0) }), .ignored)
-        XCTAssertEqual(state.resendRequests, 1)
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) }), .ignored)
+        XCTAssertEqual(state.apply(oscBundle([
+            oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) }
+        ])), .ignored)
+        XCTAssertEqual(state, MX2FeedbackState())
     }
 
     func testChangeResultReportsWhetherStateActuallyMoved() {
@@ -255,14 +258,6 @@ final class MX2FeedbackStateTests: XCTestCase {
             oscMessage("/Syndicate/Deck/2/Sync") { $0.int(1) }
         ])), .unchanged)
         XCTAssertEqual(state.apply(Data([0xFF, 0x00])), .ignored)
-    }
-
-    func testApplyDataReportsResendInsideBundle() {
-        var state = MX2FeedbackState()
-        XCTAssertEqual(state.apply(oscBundle([
-            oscMessage("/Syndicate/Feedback/Resend") { $0.int(1) }
-        ])), .resendRequested)
-        XCTAssertEqual(state.resendRequests, 1)
     }
 
     func testDeckSubscriptCreatesEntryOnWriteAndReadsDefaults() {

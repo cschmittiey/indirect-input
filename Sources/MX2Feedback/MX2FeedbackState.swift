@@ -380,8 +380,6 @@ public struct MX2FeedbackState: Equatable, Sendable {
         case unchanged
         /// Not ours, or unusable for this address.
         case ignored
-        /// `/Syndicate/Feedback/Resend` with a nonzero argument.
-        case resendRequested
     }
 
     public static let root = "Syndicate"
@@ -408,7 +406,6 @@ public struct MX2FeedbackState: Equatable, Sendable {
     /// `Mixer/CH{n}/…` values with no accessor of their own, per channel.
     public var mixer: [Int: MX2MixerChannelState] = [:]
     public var palette = MX2ColorPalette()
-    public var resendRequests = 0
 
     /// `/Header/BPM` (f) — master tempo.
     public var bpm: Double = 0
@@ -451,13 +448,6 @@ public struct MX2FeedbackState: Equatable, Sendable {
     public mutating func apply(_ message: OSCMessage) -> ApplyResult {
         let components = message.address.split(separator: "/").map(String.init)
         guard components.first == Self.root, components.count >= 2 else { return .ignored }
-
-        // /Syndicate/Feedback/Resend
-        if components.count == 3, components[1] == "Feedback", components[2] == "Resend" {
-            guard let request = message.flag(0), request else { return .ignored }
-            resendRequests += 1
-            return .resendRequested
-        }
 
         // Globals
         if components.count == 2 {
@@ -757,7 +747,7 @@ public struct MX2FeedbackState: Equatable, Sendable {
     }
 
     /// Applies every message in a packet (bare message or bundle) and reports the
-    /// strongest outcome: any change wins, otherwise a resend request, then unchanged.
+    /// strongest outcome: any change wins, then unchanged.
     @discardableResult
     public mutating func apply(_ data: Data) -> ApplyResult {
         let messages = OSCMessage.parseAll(data)
@@ -766,8 +756,6 @@ public struct MX2FeedbackState: Equatable, Sendable {
         for message in messages {
             switch apply(message) {
             case .changed: result = .changed
-            case .resendRequested:
-                if result != .changed { result = .resendRequested }
             case .unchanged:
                 if result == .ignored { result = .unchanged }
             case .ignored:

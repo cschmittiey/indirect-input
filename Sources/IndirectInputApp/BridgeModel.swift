@@ -243,15 +243,12 @@ final class BridgeModel: ObservableObject {
             self?.handleFeedbackStatus(status)
         }
         feedback.onState = { [weak self] state in self?.handleFeedbackState(state) }
-        feedback.onResend = { [weak self] in
-            self?.osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
-        }
         feedback.onRGB = { [weak self] image in self?.native.sendRGB(image) }
         setHIDIndicator(.waiting)
         setFeedbackIndicator(.idle)
         native.start()
         feedback.start()
-        osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+        requestFeedback()
     }
 
     /// Mirrors the controller's toggle state into the feedback client.
@@ -403,6 +400,7 @@ final class BridgeModel: ObservableObject {
         requestFeedback()
     }
 
+    /// Asks Syndicate to send every subscribed value again (OSC §14.10).
     func requestFeedback() {
         osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
     }
@@ -415,7 +413,7 @@ final class BridgeModel: ObservableObject {
         deckPair = pair
         native.mapping.firstDeck = pair
         feedback.configure(firstDeck: pair)
-        osc.send(OSCMessage(address: "/Syndicate/Feedback/Resend", integer: 1))
+        requestFeedback()
     }
 
     func setPadBank(_ bank: MX2PadBank) {
