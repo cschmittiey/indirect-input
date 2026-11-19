@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import SwiftUI
 import IndirectInputCore
@@ -445,15 +446,43 @@ final class BridgeModel: ObservableObject {
         }
     }
 
+    /// Shown under the Syndicate settings button when it could not do its job.
+    @Published var settingsNotice = ""
+
+    static let syndicateBundleID = "com.syndicate.app"
+
+    /// Brings Syndicate forward and opens its Settings with Command-comma.
+    ///
+    /// The keystroke goes to Syndicate's process directly rather than through the
+    /// HID tap: `activate()` is asynchronous, so a tap-posted key could land in this
+    /// app before Syndicate became frontmost. Synthesizing keys needs Accessibility
+    /// access; without it macOS drops them silently, so say so instead.
     func openSyndicateSettings() {
-        NSRunningApplication.runningApplications(withBundleIdentifier: "com.syndicate.app").first?.activate()
+        guard let syndicate = NSRunningApplication
+            .runningApplications(withBundleIdentifier: Self.syndicateBundleID).first else {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.syndicateBundleID) {
+                NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                settingsNotice = "Opening Syndicate. Click again once it is running."
+            } else {
+                settingsNotice = "Syndicate is not installed."
+            }
+            return
+        }
+        syndicate.activate()
+        // The value of `kAXTrustedCheckOptionPrompt`, which Swift 6 rejects as a
+        // mutable global.
+        let prompt = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        guard AXIsProcessTrustedWithOptions(prompt) else {
+            settingsNotice = "Allow Indirect Input under Privacy & Security → Accessibility, then try again."
+            return
+        }
+        settingsNotice = ""
         let source = CGEventSource(stateID: .hidSystemState)
-        let event = CGEvent(keyboardEventSource: source, virtualKey: 43, keyDown: true)
-        event?.flags = .maskCommand
-        event?.post(tap: .cghidEventTap)
-        let release = CGEvent(keyboardEventSource: source, virtualKey: 43, keyDown: false)
-        release?.flags = .maskCommand
-        release?.post(tap: .cghidEventTap)
+        for keyDown in [true, false] {
+            let event = CGEvent(keyboardEventSource: source, virtualKey: 43, keyDown: keyDown)
+            event?.flags = .maskCommand
+            event?.postToPid(syndicate.processIdentifier)
+        }
     }
 }
 

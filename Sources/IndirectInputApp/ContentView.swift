@@ -127,6 +127,12 @@ struct ContentView: View {
                     Button("Syndicate settings…") { model.openSyndicateSettings() }
                 }
                 .padding(.top, 3)
+                if !model.settingsNotice.isEmpty {
+                    Text(model.settingsNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .padding(14)
