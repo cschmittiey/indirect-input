@@ -253,8 +253,7 @@ final class MX2NativeTests: XCTestCase {
                 for index in 2...4 {
                     for pressed in [true, false] {
                         XCTAssertEqual(mapping.route(.button(.fxButton(side, index), pressed: pressed),
-                                                     bank: [.hotcues, .hotcues], shift: [false, false],
-                                                     jogMode: [false, false]), [])
+                                                     state: routeState(banks: [.hotcues, .hotcues], shift: [false, false])), [])
                     }
                 }
             }
@@ -268,8 +267,7 @@ final class MX2NativeTests: XCTestCase {
             for index in 1...4 {
                 for pressed in [true, false] {
                     XCTAssertEqual(mapping.route(.button(.globalFX(index), pressed: pressed),
-                                                 bank: [.hotcues, .hotcues], shift: [false, false],
-                                                 jogMode: [false, false]), [])
+                                                 state: routeState(banks: [.hotcues, .hotcues], shift: [false, false])), [])
                 }
             }
         }
@@ -282,8 +280,7 @@ final class MX2NativeTests: XCTestCase {
             for side in [MX2Side.left, .right] {
                 for pressed in [true, false] {
                     XCTAssertEqual(mapping.route(.button(.preview(side), pressed: pressed),
-                                                 bank: [.hotcues, .hotcues], shift: [false, false],
-                                                 jogMode: [false, false]), [])
+                                                 state: routeState(banks: [.hotcues, .hotcues], shift: [false, false])), [])
                 }
             }
         }
@@ -297,13 +294,11 @@ final class MX2NativeTests: XCTestCase {
                 for pad in 1...8 {
                     let deck = firstDeck + side.rawValue
                     XCTAssertEqual(mapping.route(.button(.pad(side, pad), pressed: true),
-                                                 bank: [.pattern, .pattern], shift: [false, false],
-                                                 jogMode: [false, false]),
+                                                 state: routeState(banks: [.pattern, .pattern], shift: [false, false])),
                                    [OSCMessage(address: "/Syndicate/Deck/\(deck)/Sampler/Lane",
                                                integer: Int32(pad - 1))])
                     XCTAssertTrue(mapping.route(.button(.pad(side, pad), pressed: false),
-                                                bank: [.pattern, .pattern], shift: [false, false],
-                                                jogMode: [false, false]).isEmpty)
+                                                state: routeState(banks: [.pattern, .pattern], shift: [false, false])).isEmpty)
                 }
             }
         }
@@ -341,8 +336,7 @@ final class MX2NativeTests: XCTestCase {
                 for shifted in [false, true] {
                     for pressed in [false, true] {
                         XCTAssertTrue(mapping.route(.button(.pad(side, pad), pressed: pressed),
-                                                    bank: [.stems, .stems], shift: [shifted, shifted],
-                                                    jogMode: [false, false]).isEmpty)
+                                                    state: routeState(banks: [.stems, .stems], shift: [shifted, shifted])).isEmpty)
                     }
                 }
             }
@@ -447,15 +441,13 @@ final class MX2NativeTests: XCTestCase {
                     for pressed in [true, false] {
                         for shifted in [false, true] {
                             let event = MX2InputEvent.button(.pad(side, pad), pressed: pressed)
-                            let hotcues = mapping.route(event, bank: [.hotcues, .hotcues],
-                                                        shift: [shifted, shifted], jogMode: [false, false])
+                            let hotcues = mapping.route(event, state: routeState(banks: [.hotcues, .hotcues], shift: [shifted, shifted]))
                             let expected: [OSCMessage] = shifted
                                 ? (pressed ? [OSCMessage(address: root + "/SetCueLoop", integer: Int32(pad))] : [])
                                 : [OSCMessage(address: root + "/HotCue",
                                               arguments: [.int(Int32(pad)), .int(pressed ? 1 : 0)])]
                             XCTAssertEqual(hotcues, expected)
-                            XCTAssertEqual(mapping.route(event, bank: [.loops, .loops],
-                                                         shift: [shifted, shifted], jogMode: [false, false]),
+                            XCTAssertEqual(mapping.route(event, state: routeState(banks: [.loops, .loops], shift: [shifted, shifted])),
                                            [OSCMessage(address: root + "/SlipLoop/" + sizes[pad - 1],
                                                        integer: pressed ? 1 : 0)])
                         }
@@ -492,8 +484,7 @@ final class MX2NativeTests: XCTestCase {
             for pad in [-1, 0, 9] {
                 for pressed in [false, true] {
                     XCTAssertTrue(mapping.route(.button(.pad(.left, pad), pressed: pressed),
-                                                bank: [bank, bank], shift: [true, true],
-                                                jogMode: [false, false]).isEmpty)
+                                                state: routeState(banks: [bank, bank], shift: [true, true])).isEmpty)
                 }
             }
         }
@@ -502,12 +493,10 @@ final class MX2NativeTests: XCTestCase {
     func testTransportAndHotCueUseCurrentDeckPair() {
         let mapping = MX2Mapping()
         XCTAssertEqual(mapping.route(.button(.play(.right), pressed: true),
-                                     bank: [.hotcues, .hotcues],
-                                     shift: [false, false], jogMode: [false, false]),
+                                     state: routeState(banks: [.hotcues, .hotcues], shift: [false, false])),
                        [OSCMessage(address: "/Syndicate/Deck/2/PlayPause", integer: 1)])
         let message = mapping.route(.button(.pad(.left, 3), pressed: true),
-                                    bank: [.hotcues, .hotcues],
-                                    shift: [false, false], jogMode: [false, false])
+                                    state: routeState(banks: [.hotcues, .hotcues], shift: [false, false]))
         XCTAssertEqual(message, [OSCMessage(address: "/Syndicate/Deck/1/HotCue",
                                             arguments: [.int(3), .int(1)])])
     }
@@ -515,12 +504,10 @@ final class MX2NativeTests: XCTestCase {
     func testEncoderShiftAndReleaseRules() {
         let mapping = MX2Mapping()
         XCTAssertEqual(mapping.route(.encoder(.browse(.left), delta: 2),
-                                     bank: [.hotcues, .hotcues], shift: [true, false],
-                                     jogMode: [false, false]).map(\.address),
+                                     state: routeState(banks: [.hotcues, .hotcues], shift: [true, false])).map(\.address),
                        Array(repeating: "/Syndicate/Browser/Navigation/Right", count: 2))
         XCTAssertTrue(mapping.route(.button(.pad(.left, 1), pressed: false),
-                                    bank: [.stems, .stems], shift: [false, false],
-                                    jogMode: [false, false]).isEmpty)
+                                    state: routeState(banks: [.stems, .stems], shift: [false, false])).isEmpty)
     }
 
 
@@ -640,7 +627,6 @@ struct AuditContext {
     var firstDeck = 1
     var bank: MX2Native.MX2PadBank = .hotcues
     var shift = false
-    var jogMode = false
     var cueActive = false
     var headphoneCue = false
     var pitchPreserve = false
@@ -961,21 +947,19 @@ final class MX2MappingAuditTests: XCTestCase {
         let pads = 1...8
         var mapping = MX2Mapping()
         mapping.firstDeck = context.firstDeck
-        return mapping.route(
-            event,
-            bank: [context.bank, context.bank],
-            shift: [context.shift, context.shift],
-            jogMode: [context.jogMode, context.jogMode],
-            cueActive: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueActive) }),
-            headphoneCue: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.headphoneCue) }),
-            pitchPreserve: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.pitchPreserve) }),
-            cueSlip: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueSlip) }),
-            fxEnabled: Dictionary(uniqueKeysWithValues: decks.map { ($0, context.fxEnabled) }),
-            browserMode: context.browserMode,
-            samplerMute: Dictionary(uniqueKeysWithValues: decks.map { deck in
-                (deck, Dictionary(uniqueKeysWithValues: pads.map { ($0, context.samplerMuted) }))
-            })
-        )
+        var state = MX2ControllerState()
+        state.banks = [context.bank, context.bank]
+        state.shift = [context.shift, context.shift]
+        state.cueActive = Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueActive) })
+        state.headphoneCue = Dictionary(uniqueKeysWithValues: decks.map { ($0, context.headphoneCue) })
+        state.pitchPreserve = Dictionary(uniqueKeysWithValues: decks.map { ($0, context.pitchPreserve) })
+        state.cueSlip = Dictionary(uniqueKeysWithValues: decks.map { ($0, context.cueSlip) })
+        state.fxEnabled = Dictionary(uniqueKeysWithValues: decks.map { ($0, context.fxEnabled) })
+        state.browserMode = context.browserMode
+        state.samplerMute = Dictionary(uniqueKeysWithValues: decks.map { deck in
+            (deck, Dictionary(uniqueKeysWithValues: pads.map { ($0, context.samplerMuted) }))
+        })
+        return mapping.route(event, state: state)
     }
 
     // MARK: The audit
@@ -1576,4 +1560,13 @@ final class MX2MappingAuditTests: XCTestCase {
         case .right: return "right"
         }
     }
+}
+
+/// Routing state with only the pad banks and shift flags set; everything else defaults.
+func routeState(banks: [MX2PadBank] = [.hotcues, .hotcues],
+                shift: [Bool] = [false, false]) -> MX2ControllerState {
+    var state = MX2ControllerState()
+    state.banks = banks
+    state.shift = shift
+    return state
 }

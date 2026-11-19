@@ -11,9 +11,10 @@ final class MX2MappingTests: XCTestCase {
                 let deck = mapping.deck(side)
                 for (position, expected) in [(0.42, Float(0.42)), (-0.1, 0), (1.1, 1),
                                              (Double.nan, 0), (.infinity, 0), (-.infinity, 0)] {
-                    XCTAssertEqual(mapping.route(.jog(side, delta: -12),
-                        bank: [.hotcues, .hotcues], shift: [false, false], jogMode: [true, true],
-                        jogTouch: [true, true], jogPosition: [deck: position]),
+                    var state = MX2ControllerState()
+                    state.jogTouch = [true, true]
+                    state.jogPosition = [deck: position]
+                    XCTAssertEqual(mapping.route(.jog(side, delta: -12), state: state),
                         [OSCMessage(address: "/Syndicate/Deck/\(deck)/WaveformSeek", float: expected)])
                 }
             }
@@ -24,8 +25,7 @@ final class MX2MappingTests: XCTestCase {
         let mapping = MX2Mapping()
         for (delta, sign): (Int32, Int32) in [(1, 1), (480, 1), (.max, 1),
                                              (-1, -1), (-480, -1), (.min, -1), (0, 0)] {
-            XCTAssertEqual(mapping.route(.jog(.left, delta: delta),
-                bank: [.hotcues, .hotcues], shift: [false, false], jogMode: [false, false]),
+            XCTAssertEqual(mapping.route(.jog(.left, delta: delta), state: MX2ControllerState()),
                 [OSCMessage(address: "/Syndicate/Deck/1/PhaseBend", integer: sign)])
         }
     }

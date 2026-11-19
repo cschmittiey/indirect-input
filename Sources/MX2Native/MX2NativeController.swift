@@ -13,7 +13,6 @@ public final class MX2NativeController {
     public var mapping = MX2Mapping()
     public var banks: [MX2PadBank] = [.hotcues, .hotcues]
     public var shift: [Bool] = [false, false]
-    public var jogMode: [Bool] = [false, false]
     public private(set) var jogTouch: [Bool] = [false, false]
     // Absolute normalized seek estimate, independent for each logical deck.
     // The caller can seed it from Progress feedback (OSC §14.10). Without that
@@ -25,7 +24,7 @@ public final class MX2NativeController {
     // Toggle state lives in TWO different key spaces, and mixing them is a real bug:
     //   - cueActive / headphoneCue / pitchPreserve / cueSlip / fxEnabled / samplerMute
     //     are keyed by LOGICAL DECK (1-4), so switching the deck pair preserves them.
-    //   - banks / shift / jogMode are keyed by PHYSICAL SIDE (0-1), because a bank
+    //   - banks / shift are keyed by PHYSICAL SIDE (0-1), because a bank
     //     selector physically belongs to the left or right deck.
     // headphoneCue used to be a [Bool] indexed by side, which meant switching to pair
     // 3/4 left CH3 inverted relative to the button while CH1/CH2 kept stale values.
@@ -39,8 +38,6 @@ public final class MX2NativeController {
     // Header browser mode is global, shared by both VIEW buttons and all pairs.
     public private(set) var browserMode: Int = 0
     public var onStateChange: (() -> Void)?
-    var scratchEnabled = false
-    var feedback: [String: [OSCArgument]] = [:]
 
     private var heldCueDeck: [MX2Side: Int] = [:]
     private var jogReleaseWork: [DispatchWorkItem?] = [nil, nil]
@@ -79,10 +76,6 @@ public final class MX2NativeController {
             case let .jogTouch(side): jogTouch[side.rawValue] = pressed
             case let .bank(side, bank):
                 if pressed { banks[side.rawValue] = bank }
-            case let .turntable(side):
-                if pressed { jogMode[side.rawValue] = false }
-            case let .jogMode(side):
-                if pressed { jogMode[side.rawValue] = true }
             case let .cue(side):
                 // Mirror the press-time OSC release target in the local lamp state.
                 if pressed {
@@ -178,11 +171,19 @@ public final class MX2NativeController {
     }
 
     private func route(_ event: MX2InputEvent) -> [OSCMessage] {
-        mapping.route(event, bank: banks, shift: shift, jogMode: jogMode,
-                      cueActive: cueActive, headphoneCue: headphoneCue,
-                      pitchPreserve: pitchPreserve, cueSlip: cueSlip, fxEnabled: fxEnabled,
-                      browserMode: browserMode, samplerMute: samplerMute,
-                      jogTouch: jogTouch, jogPosition: jogPosition)
+        var state = MX2ControllerState()
+        state.banks = banks
+        state.shift = shift
+        state.jogTouch = jogTouch
+        state.cueActive = cueActive
+        state.headphoneCue = headphoneCue
+        state.pitchPreserve = pitchPreserve
+        state.cueSlip = cueSlip
+        state.fxEnabled = fxEnabled
+        state.samplerMute = samplerMute
+        state.jogPosition = jogPosition
+        state.browserMode = browserMode
+        return mapping.route(event, state: state)
     }
 
     public func sendRGB(_ image: [UInt8], force: Bool = false) {

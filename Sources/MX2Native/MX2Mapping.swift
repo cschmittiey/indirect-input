@@ -1,9 +1,25 @@
 import Foundation
 import IndirectInputCore
 
+/// The controller-side state routing depends on. Physical-side arrays are indexed by
+/// `MX2Side.rawValue`; the dictionaries are keyed by logical deck (1-4).
+public struct MX2ControllerState: Sendable, Equatable {
+    public var banks: [MX2PadBank] = [.hotcues, .hotcues]
+    public var shift: [Bool] = [false, false]
+    public var jogTouch: [Bool] = [false, false]
+    public var cueActive: [Int: Bool] = [:]
+    public var headphoneCue: [Int: Bool] = [:]
+    public var pitchPreserve: [Int: Bool] = [:]
+    public var cueSlip: [Int: Bool] = [:]
+    public var fxEnabled: [Int: Bool] = [:]
+    public var samplerMute: [Int: [Int: Bool]] = [:]
+    public var jogPosition: [Int: Double] = [:]
+    public var browserMode: Int = 0
+    public init() {}
+}
+
 public struct MX2Mapping: Sendable {
     public var firstDeck: Int = 1
-    public var crossfaderCurve: Double = 1
 
     public init() {}
 
@@ -11,25 +27,11 @@ public struct MX2Mapping: Sendable {
         firstDeck + side.rawValue
     }
 
-    public func route(_ event: MX2InputEvent,
-                      bank: [MX2PadBank],
-                      shift: [Bool],
-                      jogMode: [Bool],
-                      cueActive: [Int: Bool] = [:],
-                      headphoneCue: [Int: Bool] = [:],
-                      pitchPreserve: [Int: Bool] = [:],
-                      cueSlip: [Int: Bool] = [:],
-                      fxEnabled: [Int: Bool] = [:],
-                      browserMode: Int = 0,
-                      samplerMute: [Int: [Int: Bool]] = [:],
-                      jogTouch: [Bool] = [false, false],
-                      jogPosition: [Int: Double] = [:]) -> [OSCMessage] {
+    public func route(_ event: MX2InputEvent, state: MX2ControllerState) -> [OSCMessage] {
+        let shift = state.shift
         switch event {
         case let .button(control, pressed):
-            return button(control, pressed: pressed, bank: bank, shift: shift, jogMode: jogMode,
-                          cueActive: cueActive, headphoneCue: headphoneCue,
-                          pitchPreserve: pitchPreserve, cueSlip: cueSlip, fxEnabled: fxEnabled,
-                          browserMode: browserMode, samplerMute: samplerMute)
+            return button(control, pressed: pressed, state: state)
         case let .analog(control, raw):
             return analog(control, raw: raw)
         case let .encoder(control, delta):
@@ -42,11 +44,11 @@ public struct MX2Mapping: Sendable {
                 let direction = delta > 0 ? "In" : "Out"
                 return [message("/Deck/\(deck)/WaveformZoom\(direction)")]
             }
-            if jogTouch[side.rawValue] {
+            if state.jogTouch[side.rawValue] {
                 guard delta != 0 else { return [] }
                 // OSC §14.6: absolute track position, quantized when Q is on.
                 // This is seek/scrub, not a vinyl velocity/scratch API.
-                let position = Self.clampedJogPosition(jogPosition[deck, default: 0])
+                let position = Self.clampedJogPosition(state.jogPosition[deck, default: 0])
                 return [message("/Deck/\(deck)/WaveformSeek", float: Float(position))]
             }
             // OSC §§14.3/14.6: Bend consumes ONLY the sign, not speed/magnitude;
@@ -61,12 +63,8 @@ public struct MX2Mapping: Sendable {
         return min(1, max(0, position))
     }
 
-    private func button(_ control: MX2Control, pressed: Bool,
-                        bank: [MX2PadBank], shift: [Bool], jogMode: [Bool],
-                        cueActive: [Int: Bool], headphoneCue: [Int: Bool],
-                        pitchPreserve: [Int: Bool], cueSlip: [Int: Bool],
-                        fxEnabled: [Int: Bool], browserMode: Int,
-                        samplerMute: [Int: [Int: Bool]]) -> [OSCMessage] {
+    private func button(_ control: MX2Control, pressed: Bool, state: MX2ControllerState) -> [OSCMessage] {
+        let shift = state.shift
         switch control {
         case let .play(side):
             guard pressed else { return [] }
@@ -85,20 +83,20 @@ public struct MX2Mapping: Sendable {
         case let .keyLock(side):
             guard pressed else { return [] }
             let deck = self.deck(side)
-            return [message("/Deck/\(deck)/PitchPreserve", int: pitchPreserve[deck, default: false] ? 1 : 0)]
+            return [message("/Deck/\(deck)/PitchPreserve", int: state.pitchPreserve[deck, default: false] ? 1 : 0)]
         case let .flux(side):
             guard pressed else { return [] }
             let deck = self.deck(side)
-            return [message("/Deck/\(deck)/CueSlip", int: cueSlip[deck, default: false] ? 1 : 0)]
+            return [message("/Deck/\(deck)/CueSlip", int: state.cueSlip[deck, default: false] ? 1 : 0)]
         case let .reverse(side):
             return [message("/Deck/\(self.deck(side))/Reverse", int: pressed ? 1 : 0)]
-        case let .bank(side, bank):
-            return pressed ? [] : [] // Pad-bank state is local to the bridge.
+        case .bank:
+            return [] // Pad-bank state is local to the bridge.
         case let .pad(side, index):
             guard (1...8).contains(index) else { return [] }
             let deck = self.deck(side)
             let shifted = shift[side.rawValue]
-            switch bank[side.rawValue] {
+            switch state.banks[side.rawValue] {
             case .hotcues:
                 if shifted {
                     return pressed ? [message("/Deck/\(deck)/SetCueLoop", int: Int32(index))] : []
@@ -112,7 +110,7 @@ public struct MX2Mapping: Sendable {
                 guard pressed else { return [] }
                 if shifted {
                     // LaneSet takes a ONE-based lane and does not change selection.
-                    let muted = samplerMute[deck]?[index] ?? false
+                    let muted = state.samplerMute[deck]?[index] ?? false
                     return [message("/Deck/\(deck)/Sampler/LaneSet", arguments: [
                         .int(Int32(index)), .string("Mute"), .float(muted ? 1 : 0)
                     ])]
@@ -123,16 +121,12 @@ public struct MX2Mapping: Sendable {
                 let sizes = ["ThirtySecond", "Sixteenth", "Eighth", "Quarter", "Half", "One", "Two", "Four"]
                 return [message("/Deck/\(deck)/SlipLoop/\(sizes[index - 1])", int: pressed ? 1 : 0)]
             }
-        case let .fxButton(side, index):
+        case .fxButton:
             guard pressed else { return [] }
-            // Verified on hardware: FX 1-4 are bits 60/61 (+64/65 right) and the GFX
-            // toggle is a separate physical button at 62/66. Syndicate exposes exactly
-            // one insert-chain Switch per channel (OSC §14.9 `/Mixer/CH{n}/FX`), and
-            // that belongs to the GFX toggle. Letting FX 1-4 share it would make two
-            // different buttons cancel each other. FX 2-4 likewise have no generic
-            // on/off target: FX/Macro/{1-8} are continuous Values, not effect switches.
-            _ = side
-            _ = index
+            // fxButton 1-4 have no OSC target. Syndicate exposes one insert-chain
+            // Switch per channel (OSC §14.9 `/Mixer/CH{n}/FX`), which belongs to the
+            // channel FX toggle, and FX/Macro/{1-8} are continuous values, not effect
+            // switches.
             return []
         case let .fxAssign(side, index):
             guard pressed else { return [] }
@@ -142,10 +136,10 @@ public struct MX2Mapping: Sendable {
             // Repurpose the hardware GFX toggle as the insert-chain Switch
             // documented in OSC 0.3.10 §14.9; it must not bypass on release.
             let deck = self.deck(side)
-            return [message("/Mixer/CH\(deck)/FX", int: fxEnabled[deck, default: false] ? 1 : 0)]
+            return [message("/Mixer/CH\(deck)/FX", int: state.fxEnabled[deck, default: false] ? 1 : 0)]
         case let .headphone(side):
             guard pressed else { return [] }
-            return [message("/Mixer/CH\(self.deck(side))/Cue", int: headphoneCue[self.deck(side), default: false] ? 1 : 0)]
+            return [message("/Mixer/CH\(self.deck(side))/Cue", int: state.headphoneCue[self.deck(side), default: false] ? 1 : 0)]
         case .globalFX:
             // Hardware GFX 1–4 select a Quick Effect preset for both decks.
             // OSC 0.3.10 §14.9 has no preset selector: FX is an insert-chain
@@ -153,17 +147,17 @@ public struct MX2Mapping: Sendable {
             // Legacy native FX routes are accepted but do nothing. No substitute.
             return []
         case .filter:
-            // The MX2's centre filter is audio-only. `Filter1` is a bipolar 0-1
-            // value (0.5 neutral), so 0.5 expresses "no change" rather than the
-            // dead `filter{n}.cut` address this used to target. Re-centring the
-            // filter on every press is out-of-scope for a momentary button.
+            // The MX2's centre filter button is audio-only and has no OSC target.
+            // `Filter1` is a bipolar 0-1 value (0.5 neutral) driven by the channel
+            // filter knobs; re-centring it on every press is out of scope for a
+            // momentary button.
             return []
         case .microphone:
             return []
-        case let .favorite(side):
+        case .favorite:
             guard pressed else { return [] }
             return [message("/Browser/Navigation/Left")]
-        case let .addToList(side):
+        case .addToList:
             guard pressed else { return [] }
             return [message("/Browser/Navigation/Enter")]
         case .preview:
@@ -173,7 +167,7 @@ public struct MX2Mapping: Sendable {
         case .view:
             guard pressed else { return [] }
             // OSC 0.3.10 §14.4: Index 0 hidden, 1 embedded, 2 detached.
-            return [message("/Header/Browser", int: Int32(browserMode))]
+            return [message("/Header/Browser", int: Int32(state.browserMode))]
         case let .browsePress(side):
             guard pressed else { return [] }
             return [message("/Browser/L\(self.deck(side))")]
@@ -195,17 +189,17 @@ public struct MX2Mapping: Sendable {
         switch control {
         case let .fxKnob(side, index):
             let deck = self.deck(side)
-            return index == 1
-                ? [message("/Mixer/CH\(deck)/FX/Macro/1", float: value)]
-                : [message("/Mixer/CH\(deck)/FX/Macro/\(index)", float: value)]
+            return [message("/Mixer/CH\(deck)/FX/Macro/\(index)", float: value)]
         case let .gain(side): return [message("/Mixer/CH\(self.deck(side))/Trim", float: value)]
         case let .eqHigh(side): return [message("/Mixer/CH\(self.deck(side))/EQ/High", float: value)]
         case let .eqMid(side): return [message("/Mixer/CH\(self.deck(side))/EQ/Mid", float: value)]
         case let .eqLow(side): return [message("/Mixer/CH\(self.deck(side))/EQ/Low", float: value)]
         // The MX2's channel filter knob is bipolar with a centre detent, and a raw
         // 0-4095 reading already normalises to 0..1 with 0.5 at the detent — exactly
-        // what `Filter1` wants. The old `filter{n}.cut` address was dropped from
-        // Syndicate 0.3.10, so this knob was sending into the void.
+        // what `Filter1` wants. Per OSC §14.9, builds after 0.3.9 added
+        // `/Syndicate/Mixer/filterX.cut` (plus .res and .width) as the new filter
+        // addresses, used for feedback, while `Mixer/CH{n}/Filter1` is still accepted
+        // as input, so keep sending `Filter1`.
         case let .channelFX(side):
             return [message("/Mixer/CH\(self.deck(side))/Filter1", float: value)]
         case .mainVolume: return [message("/Header/MasterVolume", float: value)]
