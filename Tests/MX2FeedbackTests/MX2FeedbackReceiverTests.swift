@@ -1,5 +1,6 @@
 import XCTest
 @testable import MX2Feedback
+@testable import IndirectInputCore
 
 @MainActor
 final class MX2FeedbackReceiverTests: XCTestCase {

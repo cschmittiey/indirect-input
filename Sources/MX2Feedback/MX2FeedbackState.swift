@@ -1,4 +1,5 @@
 import Foundation
+import IndirectInputCore
 
 /// One RGB colour as Syndicate reports it in `/Syndicate/ColorPalette`.
 public struct MX2RGB: Equatable, Sendable {

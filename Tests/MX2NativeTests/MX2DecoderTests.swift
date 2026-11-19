@@ -1,6 +1,7 @@
 import Foundation
 import XCTest
 @testable import MX2Native
+import IndirectInputCore
 
 final class MX2DecoderTests: XCTestCase {
     // Actual IOHIDDeviceGetReport snapshots from the attached 17cc:2420 / ff01:0
@@ -31,7 +32,7 @@ final class MX2DecoderTests: XCTestCase {
                 throw ProbeError.invalidBase64(packet)
             }
             if data.first == 0x2F || data.starts(with: Array("#bundle\0".utf8)) {
-                let messages = try OSCParser.messages(in: data)
+                let messages = OSCMessage.parseAll(data)
                 if trace { print("packet \(packet) OSC \(messages.map(\.address))") }
                 continue
             }

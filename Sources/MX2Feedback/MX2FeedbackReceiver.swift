@@ -1,4 +1,5 @@
 import Foundation
+import IndirectInputCore
 
 /// Receives Syndicate's OSC feedback on a loopback UDP port and keeps an
 /// `MX2FeedbackState` up to date for the LED renderer.

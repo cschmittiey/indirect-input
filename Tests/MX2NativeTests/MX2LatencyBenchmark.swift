@@ -702,7 +702,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
                 }
                 // Parse with the production parser: a message that arrives but cannot be
                 // decoded is not a delivered message.
-                let wire = (try? OSCParser.messages(in: datagram)) ?? []
+                let wire = OSCMessage.parseAll(datagram)
                 parsed += wire.count
                 received.append(wire.first?.address)
                 lastArrival = arrival
@@ -718,7 +718,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
         XCTAssertEqual(parsed, messages, "every message must parse after the UDP hop")
         if let leftover = udp.receive(timeoutNanoseconds: 20_000_000) {
             XCTFail("serialized pass left an extra datagram: "
-                    + (try OSCParser.messages(in: leftover.0).first?.address ?? "<unparseable>"))
+                    + (OSCMessage.parseAll(leftover.0).first?.address ?? "<unparseable>"))
         }
 
         let endStats = BenchStats(label: "serialized end-to-end (decode→map→encode→UDP→parse)",
@@ -865,7 +865,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
 
         let parseStart = benchNow()
         var parsed = 0
-        for packet in packets { parsed += (try? OSCParser.messages(in: packet))?.count ?? 0 }
+        for packet in packets { parsed += OSCMessage.parseAll(packet).count }
         let parseEnd = benchNow()
         XCTAssertEqual(parsed, packets.count, "every encoded packet must parse")
 
@@ -943,7 +943,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
             var seen = 0
             var last: UInt64?
             while seen < produced, let (datagram, arrival) = udp.receive(timeoutNanoseconds: 50_000_000) {
-                _ = try? OSCParser.messages(in: datagram)
+                _ = OSCMessage.parseAll(datagram)
                 seen += 1
                 last = arrival
             }
@@ -1018,7 +1018,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
         guard let (bend, _) = udp.receive(timeoutNanoseconds: 250_000_000) else {
             throw BenchError.timeout("phase bend")
         }
-        _ = try OSCParser.messages(in: bend)
+        _ = OSCMessage.parseAll(bend)
 
         // Poll for the scheduled release rather than sleeping a fixed amount: the tail
         // is what is being measured, and the main queue must be free to run the timer.
@@ -1033,7 +1033,7 @@ final class MX2LatencyBenchmarkTests: XCTestCase {
         guard let (release, _) = udp.receive(timeoutNanoseconds: 250_000_000) else {
             throw BenchError.timeout("bend release")
         }
-        _ = try OSCParser.messages(in: release)
+        _ = OSCMessage.parseAll(release)
         // Both datagrams must have cleared the socket before the next stage.
         XCTAssertEqual(udp.settle(), 0)
         return Double(emitted[1].at - start)

@@ -1,5 +1,6 @@
 import Foundation
 @testable import MX2Feedback
+@testable import IndirectInputCore
 
 // MARK: - OSC wire helpers (test-only)
 

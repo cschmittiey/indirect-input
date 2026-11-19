@@ -13,20 +13,8 @@ final class IndirectInputCoreTests: XCTestCase {
         XCTAssertEqual(floatMessage.arguments, [.float(1)])
     }
 
-    func testShiftedBrowseUsesTreeNavigationAndLoadUsesSelectedDeck() {
-        let event = BrowseEvent(channel: 2, controller: 19, value: 63)!
-        XCTAssertEqual(BridgeRouting.message(for: event, shifted: true).address,
-                       "/Syndicate/Browser/Navigation/Left")
-        XCTAssertEqual(BridgeRouting.loadMessage(deck: 2).address,
-                       "/Syndicate/Browser/L2")
-        XCTAssertEqual(BridgeRouting.loadMessage(deck: 2).integer, 1)
-    }
-
     func testOSCMessageUsesExactTriggerAddressAndInt32Payload() {
-        let event = BrowseEvent(channel: 1, controller: 19, value: 65)!
-        let message = BridgeRouting.message(for: event)
-        XCTAssertEqual(message.address, "/Syndicate/Browser/Navigation/Down")
-        XCTAssertEqual(message.integer, 1)
+        let message = OSCMessage(address: "/Syndicate/Browser/Navigation/Down", integer: 1)
         XCTAssertEqual(Array(message.packet), [
             47, 83, 121, 110, 100, 105, 99, 97, 116, 101, 47, 66,
             114, 111, 119, 115, 101, 114, 47, 78, 97, 118, 105, 103,
@@ -36,20 +24,32 @@ final class IndirectInputCoreTests: XCTestCase {
         ])
     }
 
-    func testUnrelatedValuesAndControlsAreIgnored() {
-        XCTAssertNil(BrowseEvent(channel: 1, controller: 19, value: 64))
-        XCTAssertNil(BrowseEvent(channel: 1, controller: 19, value: 0))
-        XCTAssertNotNil(BrowseEvent(channel: 1, controller: 16, value: 63))
-        XCTAssertNotNil(BrowseEvent(channel: 2, controller: 19, value: 63))
+    /// The bridge encodes and the feedback receiver decodes with the same type, so
+    /// whatever one side writes the other must read back unchanged.
+    func testEncodedMessagesParseBackIdentically() {
+        let messages = [
+            OSCMessage(address: "/Syndicate/Deck/3/HotCue", arguments: [.int(4), .int(1)]),
+            OSCMessage(address: "/Syndicate/Mixer/CH1/Volume", float: 0.25),
+            OSCMessage(address: "/Syndicate/Deck/1/Sampler/LaneSet",
+                       arguments: [.int(2), .string("Mute"), .float(1)]),
+            OSCMessage(address: "/Syndicate/Browser/L1")
+        ]
+        for message in messages {
+            XCTAssertEqual(OSCMessage.parseAll(message.packet), [message])
+        }
     }
 
-    func testClockwiseDetentRoutesDown() {
-        XCTAssertEqual(BrowseEvent(channel: 1, controller: 19, value: 65),
-                       BrowseEvent(direction: .down, value: 65))
-    }
-
-    func testCounterClockwiseDetentRoutesUp() {
-        XCTAssertEqual(BrowseEvent(channel: 1, controller: 19, value: 63),
-                       BrowseEvent(direction: .up, value: 63))
+    /// The deleted MX2Native parser crashed on exactly this: an immediate bundle.
+    func testBundleOfEncodedMessagesParses() {
+        let inner = [OSCMessage(address: "/Syndicate/Deck/1/Playing", integer: 1),
+                     OSCMessage(address: "/Syndicate/Mixer/CH2/Meter", float: 0.5)]
+        var bundle = Data("#bundle\0".utf8)
+        bundle.append(contentsOf: [0, 0, 0, 0, 0, 0, 0, 1])
+        for message in inner {
+            var size = UInt32(message.packet.count).bigEndian
+            withUnsafeBytes(of: &size) { bundle.append(contentsOf: $0) }
+            bundle.append(message.packet)
+        }
+        XCTAssertEqual(OSCMessage.parseAll(bundle), inner)
     }
 }

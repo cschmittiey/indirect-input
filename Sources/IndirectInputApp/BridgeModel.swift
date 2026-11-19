@@ -128,7 +128,7 @@ final class BridgeModel: ObservableObject {
     var nativeLogURLForTesting: URL { nativeLogURL }
     func logNativeForTesting(_ line: String) { logNative(line) }
     func applyNativeStateForTesting() { applyNativeState() }
-    func sendForTesting(_ message: IndirectInputCore.OSCMessage) { send(message) }
+    func sendForTesting(_ message: OSCMessage) { send(message) }
     func flushLogForTesting() {
         guard logDescriptor >= 0 else { return }
         close(logDescriptor)
@@ -339,7 +339,7 @@ final class BridgeModel: ObservableObject {
     /// of them alive for 120 ms to clear a single flag.
     private var flashReset: DispatchWorkItem?
 
-    private func send(_ outgoing: IndirectInputCore.OSCMessage) {
+    private func send(_ outgoing: OSCMessage) {
         osc.send(outgoing)
         eventCount += 1
         lastOutput = "\(outgoing.address) · \(outgoing.integer)"
@@ -398,7 +398,7 @@ final class BridgeModel: ObservableObject {
         }
     }
 
-    static func describe(_ message: IndirectInputCore.OSCMessage) -> String {
+    static func describe(_ message: OSCMessage) -> String {
         message.arguments.map {
             switch $0 {
             case let .int(value): return String(value)

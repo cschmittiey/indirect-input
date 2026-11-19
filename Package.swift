@@ -8,7 +8,7 @@ let package = Package(
     name: "IndirectInput",
     platforms: [.macOS(.v13)],
     targets: [
-        .target(name: "MX2Feedback", path: "Sources/MX2Feedback"),
+        .target(name: "MX2Feedback", dependencies: ["IndirectInputCore"], path: "Sources/MX2Feedback"),
         .target(name: "MX2Native", dependencies: ["IndirectInputCore", "MX2Feedback"], path: "Sources/MX2Native"),
         .target(name: "IndirectInputCore", path: "Sources/IndirectInputCore"),
         .executableTarget(
@@ -18,12 +18,12 @@ let package = Package(
         ),
         .testTarget(
             name: "MX2NativeTests",
-            dependencies: ["MX2Native"],
+            dependencies: ["MX2Native", "MX2Feedback", "IndirectInputCore"],
             path: "Tests/MX2NativeTests"
         ),
         .testTarget(
             name: "MX2FeedbackTests",
-            dependencies: ["MX2Feedback"],
+            dependencies: ["MX2Feedback", "IndirectInputCore"],
             path: "Tests/MX2FeedbackTests"
         ),
         .testTarget(
