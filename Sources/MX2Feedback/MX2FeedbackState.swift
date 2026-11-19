@@ -252,7 +252,6 @@ public struct MX2SamplerState: Equatable, Sendable {
 /// Per-deck feedback. Decks are keyed by Syndicate's own deck number (1…4); the
 /// renderer — not this type — decides which of them drive the MX2's two decks.
 public struct MX2DeckState: Equatable, Sendable {
-    public var cueActive = false
     public var playing = false
     public var loaded = false
     public var playPending = false
@@ -350,9 +349,17 @@ public struct MX2MixerChannelState: Equatable, Sendable {
     public var eqLow: Double = 0
     public var eqMid: Double = 0
     public var eqHigh: Double = 0
-    /// `Filter1` · `Filter2` (f 0–1).
+    /// `Filter1` · `Filter2` (f 0–1), the filter feedback of builds up to 0.3.9.
     public var filter1: Double = 0
     public var filter2: Double = 0
+    /// `Mixer/filter{n}.cut` · `.res` · `.width` (f 0–1), the filter feedback of
+    /// builds after 0.3.9, with their `…Enabled` availability flags (i 0/1).
+    public var filterCut: Double = 0
+    public var filterRes: Double = 0
+    public var filterWidth: Double = 0
+    public var filterCutEnabled = false
+    public var filterResEnabled = false
+    public var filterWidthEnabled = false
     /// `Mute` · `Solo` (i 0/1).
     public var mute = false
     public var solo = false
@@ -504,6 +511,33 @@ public struct MX2FeedbackState: Equatable, Sendable {
             return assign(\.samplerStep, step)
         }
 
+        // /Syndicate/Mixer/filter{n}.{cut,res,width}[Enabled] (builds after 0.3.9)
+        if components.count == 3, components[1] == "Mixer",
+           let (channel, control) = Self.filterControl(from: components[2]) {
+            switch control {
+            case "cut", "res", "width":
+                guard let value = message.number(0) else { return .ignored }
+                return mutateMixer(channel) {
+                    switch control {
+                    case "cut": $0.filterCut = value
+                    case "res": $0.filterRes = value
+                    default: $0.filterWidth = value
+                    }
+                }
+            case "cutEnabled", "resEnabled", "widthEnabled":
+                guard let value = message.flag(0) else { return .ignored }
+                return mutateMixer(channel) {
+                    switch control {
+                    case "cutEnabled": $0.filterCutEnabled = value
+                    case "resEnabled": $0.filterResEnabled = value
+                    default: $0.filterWidthEnabled = value
+                    }
+                }
+            default:
+                return .ignored
+            }
+        }
+
         // /Syndicate/Mixer/CH{n}/…
         if components.count >= 4, components[1] == "Mixer",
            let channel = Self.channel(from: components[2]) {
@@ -585,9 +619,6 @@ public struct MX2FeedbackState: Equatable, Sendable {
                 return mutateDeck(deck) {
                     $0.cuePass = MX2CuePass(name: name, cue: cue, color: color)
                 }
-            case "CueActive", "CueMomentary", "CuePreview":
-                guard let value = message.flag(0) else { return .ignored }
-                return mutateDeck(deck) { $0.cueActive = value }
             case "PlayerType":
                 guard let type = message.string(0) else { return .ignored }
                 return mutateDeck(deck) { $0.playerType = type }
@@ -907,6 +938,15 @@ public struct MX2FeedbackState: Equatable, Sendable {
             argument += 2
         }
         return (cues, extra)
+    }
+
+    /// `filter2.cut` → (2, "cut"). Only positive channel numbers are meaningful.
+    static func filterControl(from component: String) -> (channel: Int, control: String)? {
+        guard component.hasPrefix("filter"),
+              let dot = component.firstIndex(of: "."),
+              let channel = Int(component[component.index(component.startIndex, offsetBy: 6)..<dot]),
+              channel >= 1 else { return nil }
+        return (channel, String(component[component.index(after: dot)...]))
     }
 
     /// `CH1` → 1. Only positive channel numbers are meaningful.

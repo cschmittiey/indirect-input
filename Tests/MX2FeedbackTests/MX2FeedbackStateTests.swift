@@ -646,6 +646,30 @@ final class MX2FeedbackStateTests: XCTestCase {
         XCTAssertEqual(state.filter2Enabled[2], nil)
     }
 
+    /// Builds after 0.3.9 send filter feedback as `Mixer/filter{n}.cut` and friends,
+    /// outside the `CH{n}` folder.
+    func testDottedFilterAddressesAreStoredPerChannel() {
+        var state = MX2FeedbackState()
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Mixer/filter2.cut") { $0.float(0.25) }), .changed)
+        state.apply(oscMessage("/Syndicate/Mixer/filter2.res") { $0.float(0.5) })
+        state.apply(oscMessage("/Syndicate/Mixer/filter3.width") { $0.float(1) })
+        state.apply(oscMessage("/Syndicate/Mixer/filter2.cutEnabled") { $0.int(1) })
+        XCTAssertEqual(state[channel: 2].filterCut, 0.25)
+        XCTAssertEqual(state[channel: 2].filterRes, 0.5)
+        XCTAssertTrue(state[channel: 2].filterCutEnabled)
+        XCTAssertFalse(state[channel: 2].filterResEnabled)
+        XCTAssertEqual(state[channel: 3].filterWidth, 1)
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Mixer/filter2.cut") { $0.float(0.25) }), .unchanged)
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Mixer/filter0.cut") { $0.float(0.5) }), .ignored)
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Mixer/filter2.drive") { $0.float(0.5) }), .ignored)
+    }
+
+    /// `CueMomentary` is an input switch, not feedback, and must not move any state.
+    func testCueMomentaryIsNotFeedback() {
+        var state = MX2FeedbackState()
+        XCTAssertEqual(state.apply(oscMessage("/Syndicate/Deck/1/CueMomentary") { $0.int(1) }), .ignored)
+    }
+
     func testMixerValuesAreStoredPerChannel() {
         var state = MX2FeedbackState()
         state.apply(oscMessage("/Syndicate/Mixer/CH2/Volume") { $0.float(0.7) })

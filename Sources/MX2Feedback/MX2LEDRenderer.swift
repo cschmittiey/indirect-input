@@ -90,8 +90,8 @@ public enum MX2LEDColor: Int, CaseIterable, Sendable {
 /// Byte layout of the MX2's 105-byte Native LED frame.
 ///
 /// IDs are the firmware's 1-based LED numbers; the frame stores them at `id - 1`, so
-/// a 105-byte array covers IDs 1…105. IDs 61…73 stay 0 except the established
-/// headphone-Cue IDs 64 and 68; IDs 86 and 105 are also unused and stay 0.
+/// a 105-byte array covers IDs 1…105. IDs 61…73 are the mixer lamps (see
+/// `MX2MixerLamp`); IDs 86 and 105 are unused and stay 0.
 public enum MX2LEDLayout {
     public static let byteCount = 105
 
@@ -342,7 +342,7 @@ public struct MX2LEDRenderer: Sendable {
         func lamp(_ buttonID: Int, _ colour: MX2LEDColor, lit: Bool) {
             guard let lampID = MX2MixerLamp.forButton(buttonID),
                   let index = MX2LEDLayout.byteIndex(id: lampID) else { return }
-            frame[index] = lit ? colour.byte(lit: true) : colour.byte(lit: false)
+            frame[index] = colour.byte(lit: lit)
         }
 
         // Headphone Cue: the one mixer lamp with real feedback behind it.
@@ -406,7 +406,8 @@ public struct MX2LEDRenderer: Sendable {
         set(.sync, .blue, deck.sync ? .lit : .dim)
         set(.master, .blue, context.masterPhysicalDeck == physicalDeck ? .lit : .dim)
         set(.keylock, .blue, deck.pitchPreserve ? .lit : .dim)
-        let previewActive = context.cueActive[physicalDeck] ?? deck.cueActive
+        // Syndicate sends no cue-held feedback, so this is the controller's own state.
+        let previewActive = context.cueActive[physicalDeck] ?? false
         // CUE lamp: bright while the transport CUE is held, dim whenever the deck has
         // something loaded (so the button is findable), dark when empty. The previous
         // version had `deck.loaded ? .dim : .dim` — both arms identical, so the lamp
