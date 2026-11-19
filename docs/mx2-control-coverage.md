@@ -1,6 +1,6 @@
-# MX2 control coverage (Syndicate 0.3.10)
+# MX2 control coverage
 
-This inventory describes the **software mapping**, not a hardware acceptance test. Paths below omit `/Syndicate`. `n` is the selected logical deck; SHIFT, bank selection and platter touch belong to the physical side. See `Sources/MX2Native/MX2Mapping.swift` for exact packet arguments and `MX2Decoder.swift` for report indices.
+This inventory describes the **software mapping**, not a hardware acceptance test. The routes follow chapter 14 ("OSC control") of [Syndicate's user guide](https://untitledaudiosyndicate.com/docs?c=c14-2); `scripts/fetch-syndicate-osc-docs.sh` prints that chapter as text so it can be diffed when Syndicate updates. Paths below omit `/Syndicate`. `n` is the selected logical deck; SHIFT, bank selection and platter touch belong to the physical side. See `Sources/MX2Native/MX2Mapping.swift` for exact packet arguments and `MX2Decoder.swift` for report indices.
 
 | Control | What the bridge sends |
 | --- | --- |

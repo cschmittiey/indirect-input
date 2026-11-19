@@ -168,10 +168,11 @@ inside `onControl` — timing it after a sleep would only measure the sleep.
   Syndicate parses and applies messages is its own concern.
 - **RGB feedback.** The outbound control path only. The feedback listener is a separate
   socket on a separate port and is not exercised here.
-- **Warm-cache best case for the mapping layer.** The controller is driven directly rather
-  than through `BridgeModel`'s logging hooks, so the per-event file I/O the app performs
-  when the diagnostic log is enabled is excluded. That write is async and off the hot
-  path in practice, but it is a real difference between this harness and the running app.
+- **The diagnostic log.** The controller is driven directly rather than through
+  `BridgeModel`'s hooks, so the log write is excluded. The running app writes it
+  synchronously on the main actor, one `write(2)` per line (about 3.5 µs) for each
+  input, outgoing message and status change, so add a few lines' worth per report
+  when comparing against the live app.
 
 The numbers to trust are the stage table (isolated, attributable) and the zero-loss paced
 run (the cadence that actually matters). The serialized end-to-end p50 is an upper bound

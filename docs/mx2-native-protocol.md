@@ -1,6 +1,6 @@
 # MX2 native protocol evidence
 
-Recovered from the arm64 slice of Traktor Pro 4 installed at `/Applications/Native Instruments/Traktor Pro 4`. Analysis copy is under `~/.hermes/cache/scratch/mx2-re/`; the installed application was not modified.
+Recovered from the arm64 slice of Traktor Pro 4 installed at `/Applications/Native Instruments/Traktor Pro 4`, using a separate copy; the installed application was not modified.
 
 ## Input reports
 
@@ -28,8 +28,8 @@ sides from 62 onward, which shifted the whole block:
   hardware-verified; treat it as unconfirmed)*
 
 The correct reading of the block is left-pair, then right-pair, then the centre
-controls. There is no interleaving: 62/63 belong to the right deck's neighbour
-controls on the left, not to a second global FX entry.
+controls. There is no interleaving: 62 and 63 are the left side's channel FX and
+headphone Cue, not a second global FX entry.
 
 The remaining left/right deck controls occupy IDs 0...15 and 30...45 in the same order as the decoder table.
 
@@ -44,7 +44,7 @@ Important correction: an earlier investigation treated later raw report bytes as
 - `csi::communication::nhl::MX2PortDescriptor::MX2PortDescriptor`: `0x100278f84`
 - `NI::NHL2::Traktor::MX2::getLEDInfo`: `0x100d60b58`
 
-Targeted disassemblies are saved beside the analysis copy as `device-constructor.asm`, `process-report.asm`, `button-process.asm`, `port-descriptor.asm`, and `led-map.asm`.
+Targeted disassemblies of these functions (`device-constructor.asm`, `process-report.asm`, `button-process.asm`, `port-descriptor.asm`, `led-map.asm`) were made from that copy and are not in this repo.
 
 ## RGB report
 
@@ -56,4 +56,4 @@ The established renderer layout is retained while feedback is developed. Inactiv
 
 Deck transport Cue and mixer headphone Cue are distinct. Syndicate documents `/Syndicate/Deck/{n}/Cue` as **Hold**: the bridge sends 1 on press and 0 on release. `/Syndicate/Mixer/CH{n}/Cue` is a separate switch, toggled on each headphone-Cue press.
 
-The Native tab logs native input and outgoing OSC to `~/.local/state/indirect-input/native-events.log`. This log is diagnostic and may contain analog-control traffic.
+The app logs native input, outgoing OSC and status changes to `~/.local/state/indirect-input/native-events.log` (**Reveal diagnostic log**). It is diagnostic, includes analog-control traffic, and rotates to `native-events.1.log` past 8 MiB.
