@@ -113,6 +113,17 @@ final class MX2NativeTests: XCTestCase {
     }
 
     @MainActor
+    func testCueLampReleasesOriginalDeckAfterPairChange() {
+        let controller = MX2NativeController()
+        controller.handle(.button(.cue(.left), pressed: true))
+        XCTAssertEqual(controller.cueActive[1], true)
+        controller.mapping.firstDeck = 3
+        controller.handle(.button(.cue(.left), pressed: false))
+        XCTAssertEqual(controller.cueActive[1], false)
+        XCTAssertNil(controller.cueActive[3])
+    }
+
+    @MainActor
     func testCueAndHeadphoneToggleOnSuccessivePresses() {
         let controller = MX2NativeController()
         var messages: [IndirectInputCore.OSCMessage] = []
@@ -574,7 +585,7 @@ final class MX2NativeTests: XCTestCase {
 //   §14.3 message kinds (Value / Switch / Trigger / Hold / Step / Bend / Index)
 //   §14.4 Header · §14.5 Browser · §14.6 track & arrangement decks
 //   §14.8 sampler decks · §14.9 mixer
-// Cached copy: /Users/ellie/.hermes/cache/web/untitledaudiosyndicate.com-5767e38e75.md
+// Source: Syndicate 0.3.10 OSC reference.
 //
 // The table is the contract, not a transcript of the implementation: one row per
 // MX2Native.MX2Control case and per context variant that changes the wire. A row with no wire is a

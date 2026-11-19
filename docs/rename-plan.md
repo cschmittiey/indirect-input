@@ -1,4 +1,7 @@
-# Rename + MIDI removal plan
+# Historical plan: rename + MIDI removal
+
+The module rename and MIDI monitor/CLI removal landed in `da3a25e`. This is
+implementation history, not an outstanding migration.
 
 Decided while five agents were mid-flight on the current names. Do this **only after
 every agent has landed and the tree is green and quiet**, because it touches

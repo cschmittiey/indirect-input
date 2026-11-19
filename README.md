@@ -28,7 +28,9 @@ in the bridge. An empty deck has little to report: load a track before judging t
   stem pads and Quick Effect preset selection. Syndicate’s OSC API has no matching routes.
 - **Not promised:** complete hardware verification of every control, sample triggering
   from the sampler pads, or RGB delivery merely because a write was accepted.
-- **MIDI Browse is retired from the UI.** Its legacy code and CLI test remain for later cleanup.
+- **Browse uses native HID.** The MIDI monitor and its standalone CLI are retired.
+
+See the [control inventory](docs/mx2-control-coverage.md) for mappings and open checks.
 
 The window shows HID, feedback and RGB status plus OSC/render counts. Use **Reveal
 diagnostic log** for `~/.local/state/indirect-input/native-events.log`.
@@ -44,11 +46,16 @@ open "$HOME/Applications/Indirect Input.app"
 ```
 
 Without `--install`, the script only builds `dist/Indirect Input.app`. Bundles are
-ad-hoc signed, not notarized. OSC defaults to `127.0.0.1:9090`; expand **OSC destination**
+ad-hoc signed, not notarized. OSC defaults to `127.0.0.1:9090`; click **Edit address…** beside the OSC destination
 to change it. Feedback always listens locally on **9096**; do not run a second listener there.
 
 The patch-cable icon lives in `Resources/AppIcon.svg`; `bash Resources/build-icon.sh`
 regenerates its PNG/iconset/ICNS with librsvg (or Nix), `sips` and `iconutil`.
 
-Co-authored workflow notes: load the **`midi-osc-controller-bridge`** skill for protocol
-evidence, feedback gotchas and packaging details.
+## Architecture review
+
+<img src="docs/images/design-review.jpg" width="540" alt="Ellie describes the HID-to-OSC bridge. deadmau5 replies: “thats latent af / i wouldnt do that”.">
+
+he’s probably right. i already had the deck.
+
+[Latency measurements](docs/latency.md), for anyone else who already has the deck.

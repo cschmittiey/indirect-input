@@ -42,6 +42,7 @@ public final class MX2NativeController {
     var scratchEnabled = false
     var feedback: [String: [OSCArgument]] = [:]
 
+    private var heldCueDeck: [MX2Side: Int] = [:]
     private var jogReleaseWork: [DispatchWorkItem?] = [nil, nil]
     private var jogReleases: [OSCMessage?] = [nil, nil]
     private var buttonReleases: [MX2Control: [OSCMessage]] = [:]
@@ -76,8 +77,14 @@ public final class MX2NativeController {
             case let .jogMode(side):
                 if pressed { jogMode[side.rawValue] = true }
             case let .cue(side):
-                // Hold semantics, keyed by logical deck so a pair change cannot strand it.
-                cueActive[mapping.deck(side), default: false] = pressed
+                // Mirror the press-time OSC release target in the local lamp state.
+                if pressed {
+                    let deck = mapping.deck(side)
+                    heldCueDeck[side] = deck
+                    cueActive[deck] = true
+                } else if let deck = heldCueDeck.removeValue(forKey: side) {
+                    cueActive[deck] = false
+                }
             case let .keyLock(side):
                 if pressed { pitchPreserve[mapping.deck(side), default: false].toggle() }
             case let .flux(side):

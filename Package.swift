@@ -28,7 +28,10 @@ let package = Package(
         ),
         .testTarget(
             name: "IndirectInputAppTests",
-            dependencies: ["IndirectInputCore"],
+            // Depends on the app target itself so the bridge's status-indicator and
+            // hot-path behavior can be tested directly. SwiftPM supports importing an
+            // executable target into a test target; `@main` does not conflict.
+            dependencies: ["IndirectInputCore", "IndirectInputApp"],
             path: "Tests/IndirectInputAppTests"
         )
     ]

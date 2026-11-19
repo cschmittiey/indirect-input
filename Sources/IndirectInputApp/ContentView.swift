@@ -32,7 +32,8 @@ struct ContentView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                PatchMark().frame(width: 48, height: 48).accessibilityHidden(true)
+                Image(nsImage: NSApplication.shared.applicationIconImage)
+                    .resizable().scaledToFit().frame(width: 48, height: 48).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Indirect Input")
                         .font(.system(size: 25, weight: .semibold, design: .rounded))
@@ -50,39 +51,34 @@ struct ContentView: View {
     }
 
     private var signalPath: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            statusRow("HID connection", symbol: "cable.connector",
-                      detail: model.nativeStatus,
-                      color: model.nativeConnected ? accent : .orange)
-            Divider().padding(.leading, 40)
-            statusRow("OSC feedback", symbol: "arrow.down.left",
-                      detail: model.feedbackStatus, color: .secondary)
-            Divider().padding(.leading, 40)
-            statusRow("RGB transport", symbol: "lightbulb",
-                      detail: model.rgbStatus, color: .secondary)
+        HStack(spacing: 16) {
+            statusLamp("HID connection", model.hidIndicator)
+            Divider()
+            statusLamp("OSC feedback", model.feedbackIndicator)
+            Divider()
+            statusLamp("RGB transport", model.rgbIndicator)
         }
-        .padding(.horizontal, 14)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(14)
         .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.07)))
     }
 
-    private func statusRow(_ title: String, symbol: String,
-                           detail: String, color: Color) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(color)
-                .frame(width: 22, height: 20)
-                .accessibilityHidden(true)
-            Text(title).font(.system(size: 12, weight: .medium)).frame(width: 106, alignment: .leading)
-            Text(detail)
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
+    private func statusLamp(_ title: String, _ state: String) -> some View {
+        let color: Color = switch state {
+        case "Connected", "Received", "Accepted": .green
+        case "Error": .orange
+        default: .secondary
         }
-        .padding(.vertical, 12)
+        return HStack(spacing: 9) {
+            Circle().fill(color).frame(width: 8, height: 8).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.caption.weight(.medium))
+                Text(state).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
     }
 
     private var routing: some View {
@@ -175,7 +171,16 @@ struct ContentView: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 10) {
             Divider()
-            DisclosureGroup("OSC destination", isExpanded: $showConnection) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    sectionLabel("OSC DESTINATION")
+                    Text("\(model.osc.host):\(String(model.osc.port))")
+                        .font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                }
+                Spacer()
+                Button(showConnection ? "Hide editor" : "Edit address…") { showConnection.toggle() }
+            }
+            if showConnection {
                 VStack(alignment: .leading, spacing: 9) {
                     HStack {
                         TextField("Host", text: $model.host).accessibilityLabel("OSC host")
@@ -183,7 +188,7 @@ struct ContentView: View {
                             .accessibilityLabel("OSC port")
                         Button("Apply") { model.apply() }
                     }
-                    Text("Enable Syndicate OSC INPUT on port 9090. Feedback always listens locally on 9096.")
+                    Text("Match the host and port to Syndicate’s OSC INPUT. Feedback always listens locally on 9096.")
                         .font(.caption).foregroundStyle(.secondary)
                     if !model.connectionNotice.isEmpty {
                         Text(model.connectionNotice).font(.caption).textSelection(.enabled)
@@ -191,11 +196,7 @@ struct ContentView: View {
                 }
                 .padding(.top, 8)
             }
-            .font(.caption)
             HStack {
-                Text("OSC → \(model.osc.host):\(String(model.osc.port))")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Reveal diagnostic log") { model.revealLog() }
                     .buttonStyle(.link)
@@ -209,37 +210,5 @@ struct ContentView: View {
             .font(.system(size: 10, weight: .medium, design: .monospaced))
             .tracking(0.7)
             .foregroundStyle(.secondary)
-    }
-}
-
-/// A tiny patch cable; the same geometry is used by Resources/AppIcon.svg.
-private struct PatchMark: View {
-    var body: some View {
-        GeometryReader { geometry in
-            let size = geometry.size.width
-            ZStack {
-                RoundedRectangle(cornerRadius: size * 0.22)
-                    .fill(Color(red: 0.16, green: 0.18, blue: 0.18))
-                Path { path in
-                    path.move(to: CGPoint(x: size * 0.25, y: size * 0.32))
-                    path.addLine(to: CGPoint(x: size * 0.39, y: size * 0.32))
-                    path.addCurve(to: CGPoint(x: size * 0.61, y: size * 0.68),
-                                  control1: CGPoint(x: size * 0.65, y: size * 0.32),
-                                  control2: CGPoint(x: size * 0.35, y: size * 0.68))
-                    path.addLine(to: CGPoint(x: size * 0.75, y: size * 0.68))
-                }
-                .stroke(Color(red: 0.85, green: 0.83, blue: 0.78),
-                        style: StrokeStyle(lineWidth: size * 0.08, lineCap: .round))
-                ForEach(0..<2) { index in
-                    Circle()
-                        .fill(Color(red: 0.16, green: 0.18, blue: 0.18))
-                        .overlay(Circle().strokeBorder(Color(red: 0.85, green: 0.83, blue: 0.78),
-                                                      lineWidth: size * 0.045))
-                        .frame(width: size * 0.19, height: size * 0.19)
-                        .position(x: size * (index == 0 ? 0.25 : 0.75),
-                                  y: size * (index == 0 ? 0.32 : 0.68))
-                }
-            }
-        }
     }
 }
