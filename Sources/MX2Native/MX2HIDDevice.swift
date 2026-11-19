@@ -41,16 +41,19 @@ final class MX2HIDDevice {
             kIOHIDPrimaryUsageKey: 0
         ]
         IOHIDManagerSetDeviceMatching(manager, criteria as CFDictionary)
+        // Every callback below is scheduled on the main run loop, so it already runs on
+        // the main thread: `assumeIsolated` enters the main actor in place. A `Task` per
+        // report cost an executor hop at 1 kHz and left report order to the scheduler.
         let context = Unmanaged.passUnretained(self).toOpaque()
         IOHIDManagerRegisterDeviceMatchingCallback(manager, { context, _, _, device in
             guard let context else { return }
             let owner = Unmanaged<MX2HIDDevice>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in owner.attach(device) }
+            MainActor.assumeIsolated { owner.attach(device) }
         }, context)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, { context, _, _, device in
             guard let context else { return }
             let owner = Unmanaged<MX2HIDDevice>.fromOpaque(context).takeUnretainedValue()
-            Task { @MainActor in owner.detach(device) }
+            MainActor.assumeIsolated { owner.detach(device) }
         }, context)
         IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
         let result = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -115,7 +118,7 @@ final class MX2HIDDevice {
             guard let context else { return }
             let owner = Unmanaged<MX2HIDDevice>.fromOpaque(context).takeUnretainedValue()
             let report = Array(UnsafeBufferPointer(start: bytes, count: count))
-            Task { @MainActor in owner.receive(report) }
+            MainActor.assumeIsolated { owner.receive(report) }
         }, Unmanaged.passUnretained(self).toOpaque())
         decoder = MX2Decoder()
         onStatus?("Traktor MX2 · Native connected", true)

@@ -67,13 +67,19 @@ final class FeedbackSocket: @unchecked Sendable {
 
         let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         let handler = onPacket
+        // One receive buffer per socket, reused for every datagram. The handlers all
+        // run on the same serial queue, so nothing reads it concurrently; allocating
+        // and zeroing 64 KB per datagram was pure waste at meter rates.
+        let buffer = UnsafeMutableRawBufferPointer.allocate(
+            byteCount: FeedbackTransport.maximumDatagramSize, alignment: 1)
         source.setEventHandler {
-            Self.drain(fd: fd, deliver: handler)
+            Self.drain(fd: fd, buffer: buffer, deliver: handler)
         }
         // Closing in the cancel handler means `close(2)` can never race an in-flight
         // read, and `stop()` waits on `completed` for it to land.
         source.setCancelHandler {
             close(fd)
+            buffer.deallocate()
             completed.signal()
         }
         readSource = source
@@ -98,12 +104,12 @@ final class FeedbackSocket: @unchecked Sendable {
     }
 
     /// Reads every queued datagram on `fd`, handing each to `deliver`.
-    private static func drain(fd: Int32, deliver: (@Sendable (Data) -> Void)?) {
+    private static func drain(fd: Int32, buffer: UnsafeMutableRawBufferPointer,
+                              deliver: (@Sendable (Data) -> Void)?) {
         while true {
-            var buffer = [UInt8](repeating: 0, count: FeedbackTransport.maximumDatagramSize)
-            let count = recv(fd, &buffer, buffer.count, 0)
+            let count = recv(fd, buffer.baseAddress, buffer.count, 0)
             guard count > 0 else { return }
-            deliver?(Data(buffer[0..<count]))
+            deliver?(Data(bytes: buffer.baseAddress!, count: count))
         }
     }
 
