@@ -97,6 +97,26 @@ final class BridgeIndicatorTests: XCTestCase {
         XCTAssertEqual(model.native.jogPosition[1], 0.71)
     }
 
+    func testHeadphoneCueFollowsSyndicateOnlyWhenItsFeedbackChanges() {
+        let model = makeModel()
+        var state = MX2FeedbackState()
+        state.headphoneCue[3] = true
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.headphoneCue[3], true, "a change made in Syndicate is adopted")
+        XCTAssertEqual(model.feedback.headphoneCue[3], true, "and mirrored to the lamps")
+
+        // A local press toggles off; a meter frame still carrying the old value
+        // must not undo it before Syndicate echoes the press.
+        model.native.headphoneCue[3] = false
+        state.meters[3] = 0.5
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.headphoneCue[3], false)
+
+        state.headphoneCue[3] = false
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.headphoneCue[3], false)
+    }
+
     func testFeedbackBindFailureIsError() {
         let model = makeModel()
         model.handleFeedbackStatus("Feedback could not bind UDP 9096")

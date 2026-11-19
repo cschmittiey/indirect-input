@@ -30,4 +30,4 @@ This inventory describes the **software mapping**, not a hardware acceptance tes
 
 - Verify the remaining button labels and report bits with the physical deck. In particular, distinguish `fxAssign` from `fxButton` by position and confirm whether punching macro 1/2 to full is wanted before changing it.
 - Verify press, release and audible response on loaded tracks. Packet tests cannot establish what the host accepted or when the audio changed.
-- Compare local toggle state with Syndicate after changing a switch in the host UI or reconnecting. A controller-side toggle test does not establish resynchronization.
+- Compare local toggle state with Syndicate after changing a switch in the host UI or reconnecting. Headphone Cue follows Syndicate's `Mixer/CH{n}/Cue` feedback when it is subscribed. KEYLOCK, FLUX and channel FX have no feedback route, so they can still drift.

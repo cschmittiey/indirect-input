@@ -336,6 +336,8 @@ final class BridgeModel: ObservableObject {
 
     /// Last Progress forwarded per deck, so only real Progress changes reseed.
     private var seededProgress: [Int: Double] = [:]
+    /// Last headphone Cue feedback seen per channel, for the same reason.
+    private var syncedHeadphoneCue: [Int: Bool] = [:]
 
     func handleFeedbackState(_ state: MX2FeedbackState) {
         feedbackRenders += 1
@@ -350,6 +352,20 @@ final class BridgeModel: ObservableObject {
             seededProgress[deck] = progress
             native.seedJogPosition(deck: deck, progress: progress)
         }
+        // The headphone Cue buttons toggle local state, so a change made in Syndicate
+        // itself would leave the next press going the wrong way. Adopt Syndicate's
+        // value, but only when that value moved: a meter frame still carrying the old
+        // value must not undo a press whose echo has not arrived yet. Mixer channel n
+        // is deck n, the same mapping the button routes with.
+        var cueChanged = false
+        for (channel, enabled) in state.headphoneCue where syncedHeadphoneCue[channel] != enabled {
+            syncedHeadphoneCue[channel] = enabled
+            if native.headphoneCue[channel, default: false] != enabled {
+                native.headphoneCue[channel] = enabled
+                cueChanged = true
+            }
+        }
+        if cueChanged { applyNativeState() }
         setFeedbackIndicator(.received)
         // Logging every frame would swamp the log at meter rates, so log the
         // first few and then every 50th: enough to see feedback live, cheap.
