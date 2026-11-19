@@ -82,6 +82,24 @@ final class BridgeIndicatorTests: XCTestCase {
         XCTAssertEqual(model.feedbackIndicator, "Received")
     }
 
+    func testOnlyProgressChangesReseedTheJogOrigin() {
+        let model = makeModel()
+        var state = MX2FeedbackState()
+        state[deck: 1].progress = 0.4
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.jogPosition[1], 0.4)
+
+        // The controller moved the origin (a seek); a meter-only frame must keep it.
+        model.native.jogPosition[1] = 0.7
+        state.meters[1] = 0.9
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.jogPosition[1], 0.7)
+
+        state[deck: 1].progress = 0.71
+        model.handleFeedbackState(state)
+        XCTAssertEqual(model.native.jogPosition[1], 0.71)
+    }
+
     func testFeedbackBindFailureIsError() {
         let model = makeModel()
         model.handleFeedbackStatus("Feedback could not bind UDP 9096")

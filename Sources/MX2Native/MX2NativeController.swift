@@ -60,9 +60,16 @@ public final class MX2NativeController {
     /// track relative to where it actually is rather than relative to the start.
     /// Called whenever Syndicate reports `Deck/{n}/Progress`. Non-finite or
     /// out-of-range values are clamped rather than trusted.
+    ///
+    /// Ignored while a platter driving that deck is touched: Progress lags the seeks
+    /// we are sending, so accepting it mid-gesture would yank the platter back.
     public func seedJogPosition(deck: Int, progress: Double) {
-        guard (1...4).contains(deck) else { return }
+        guard (1...4).contains(deck), !isTouched(deck: deck) else { return }
         jogPosition[deck] = MX2Mapping.clampedJogPosition(progress)
+    }
+
+    private func isTouched(deck: Int) -> Bool {
+        [MX2Side.left, .right].contains { jogTouch[$0.rawValue] && mapping.deck($0) == deck }
     }
 
     func handle(_ event: MX2InputEvent) {

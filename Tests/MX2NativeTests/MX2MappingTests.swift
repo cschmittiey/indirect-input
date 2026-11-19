@@ -140,6 +140,22 @@ final class MX2MappingTests: XCTestCase {
     }
 
     @MainActor
+    func testProgressSeedIsIgnoredWhileThatDecksPlatterIsTouched() {
+        let controller = MX2NativeController()
+        controller.seedJogPosition(deck: 1, progress: 0.5)
+        controller.handle(.button(.jogTouch(.left), pressed: true))
+        controller.handle(.jog(.left, delta: 960))
+        // Stale Progress arrives mid-gesture: it must not drag the seek origin back.
+        controller.seedJogPosition(deck: 1, progress: 0.5)
+        controller.seedJogPosition(deck: 2, progress: 0.25)
+        XCTAssertEqual(controller.jogPosition[1]!, 0.51, accuracy: 1e-12)
+        XCTAssertEqual(controller.jogPosition[2], 0.25)
+        controller.handle(.button(.jogTouch(.left), pressed: false))
+        controller.seedJogPosition(deck: 1, progress: 0.52)
+        XCTAssertEqual(controller.jogPosition[1], 0.52)
+    }
+
+    @MainActor
     func testShiftJogUsesZoomTriggersBeforeTouchAndNeverChangesSeekPosition() async throws {
         let controller = MX2NativeController()
         var messages: [OSCMessage] = []

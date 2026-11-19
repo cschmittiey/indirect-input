@@ -306,12 +306,21 @@ final class BridgeModel: ObservableObject {
         }
     }
 
+    /// Last Progress forwarded per deck, so only real Progress changes reseed.
+    private var seededProgress: [Int: Double] = [:]
+
     func handleFeedbackState(_ state: MX2FeedbackState) {
         feedbackRenders += 1
         // Seed the jog seek origin from real playback position. Without this the
         // first touched platter turn seeks relative to the start of the track.
+        // Only when Progress itself moved: this hook fires for every meter frame, and
+        // reseeding from a stale (or never-subscribed, so 0) Progress on each one
+        // dragged the seek origin back to wherever Progress last said.
         for deck in state.deckNumbers {
-            native.seedJogPosition(deck: deck, progress: state[deck: deck].progress)
+            let progress = state[deck: deck].progress
+            guard seededProgress[deck] != progress else { continue }
+            seededProgress[deck] = progress
+            native.seedJogPosition(deck: deck, progress: progress)
         }
         feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters · \(feedbackRenders) frames"
         setFeedbackIndicator(.received)
