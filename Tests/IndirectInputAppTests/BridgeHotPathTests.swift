@@ -129,6 +129,48 @@ final class BridgeHotPathTests: XCTestCase {
         XCTAssertGreaterThan(renders.value, 0)
     }
 
+    // MARK: - Log size
+
+    /// The log used to grow without bound at meter rate. Past the limit it rotates
+    /// to `<name>.1.log`, replacing any older rotation.
+    func testLogRotatesPastItsLimit() throws {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("indirect-input-tests")
+            .appendingPathComponent("rotate-\(UUID().uuidString).log")
+        let model = BridgeModel(startServices: false, logURL: url, logLimit: 4096)
+        let rotated = BridgeModel.rotatedLogURL(for: url)
+        defer {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: rotated)
+        }
+        let line = String(repeating: "x", count: 100)
+        for _ in 0..<100 { model.logNativeForTesting(line) }
+        model.flushLogForTesting()
+
+        let size = { (url: URL) in
+            (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+        }
+        XCTAssertGreaterThanOrEqual(size(rotated), 4096)
+        XCTAssertLessThan(size(url), 4096)
+        XCTAssertEqual(rotated.lastPathComponent, url.deletingPathExtension().lastPathComponent + ".1.log")
+    }
+
+    /// An RGB failure repeats on every frame; it must reach the log once, not per frame.
+    func testRepeatedRGBFailureLogsOnce() throws {
+        let (model, url) = makeModel()
+        defer { try? FileManager.default.removeItem(at: url) }
+        for _ in 0..<50 {
+            model.handleNativeStatus("RGB frame dropped: no MX2 HID device attached", connected: false)
+        }
+        for _ in 0..<50 {
+            model.handleRGBStatus([UInt8](repeating: 0, count: 105), status: kIOReturnSuccess)
+        }
+        model.flushLogForTesting()
+        let log = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertEqual(log.components(separatedBy: "no MX2 HID device").count - 1, 1)
+        XCTAssertEqual(log.components(separatedBy: "RGB frame accepted").count - 1, 1)
+    }
+
     // MARK: - Flash timer
 
     /// The old code spawned a `Task` per message just to clear one flag; a burst

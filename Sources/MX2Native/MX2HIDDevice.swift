@@ -86,12 +86,13 @@ final class MX2HIDDevice {
             lastImage = image
             lastSend = now
         }
-        // Always surface the transport result. A silent success here is what hid the
-        // wrong-report-ID bug for hours, so never swallow it.
-        onStatus?(result == kIOReturnSuccess
-                  ? "RGB sent \(image.filter { $0 != 0 }.count) lit on report 0x80"
-                  : "RGB SetReport failed: \(result)",
-                  result == kIOReturnSuccess)
+        // Always surface the transport result through `onRGB`. A silent success here is
+        // what hid the wrong-report-ID bug for hours, so never swallow it. Failures also
+        // go through `onStatus`; a success status per frame would flood the log at
+        // meter rate, and `onRGB` already carries it.
+        if result != kIOReturnSuccess {
+            onStatus?("RGB SetReport failed: \(result)", false)
+        }
         onRGB?(image, result)
     }
 

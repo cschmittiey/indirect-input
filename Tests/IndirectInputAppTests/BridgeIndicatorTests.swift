@@ -29,11 +29,9 @@ final class BridgeIndicatorTests: XCTestCase {
         let model = makeModel()
         model.handleNativeStatus("Traktor MX2 · Native connected", connected: true)
         XCTAssertEqual(model.hidIndicator, "Connected")
-        XCTAssertTrue(model.nativeConnected)
 
         model.handleNativeStatus("Traktor MX2 disconnected · waiting", connected: false)
         XCTAssertEqual(model.hidIndicator, "Waiting")
-        XCTAssertFalse(model.nativeConnected)
     }
 
     func testHIDOpenFailureIsError() {
@@ -64,7 +62,6 @@ final class BridgeIndicatorTests: XCTestCase {
         model.handleRGBStatus([UInt8](repeating: 0, count: 105), status: kIOReturnSuccess)
         XCTAssertEqual(model.rgbIndicator, "Accepted")
         XCTAssertEqual(model.hidIndicator, "Connected")
-        XCTAssertTrue(model.rgbStatus.contains("0 nonzero LED values"))
 
         model.handleRGBStatus([UInt8](repeating: 0, count: 105), status: kIOReturnError)
         XCTAssertEqual(model.rgbIndicator, "Error")

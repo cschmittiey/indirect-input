@@ -9,15 +9,12 @@ import MX2Feedback
 final class BridgeModel: ObservableObject {
     @Published var host = "127.0.0.1"
     @Published var port = "9090"
-    @Published var lastOutput = "No OSC sent yet"
+    // Every `@Published` set re-diffs the whole view, and several of these change at
+    // input or meter rate, so only state the window actually shows is published.
     @Published var eventCount = 0
     @Published var flash = false
-    @Published var nativeStatus = "Native idle"
-    @Published var nativeConnected = false
     @Published var nativeInput = "No native input yet"
     @Published var nativeOutput = "No native OSC sent yet"
-    @Published var feedbackStatus = "Feedback not started"
-    @Published var rgbStatus = "RGB not sent"
     /// Count of feedback state updates observed through the client's onState hook.
     @Published var feedbackRenders = 0
     @Published var deckPair = 1
@@ -73,6 +70,10 @@ final class BridgeModel: ObservableObject {
     private let nativeLogURL: URL
     private var logDescriptor: Int32 = -1
     private var logDirectoryCreated = false
+    /// The log rotates to `<name>.1.log` past this size, so it holds at most about
+    /// twice this on disk however long the app runs.
+    private let logLimit: Int
+    private var logBytes = 0
 
     private func logNative(_ line: String) {
         guard let descriptor = logFileDescriptor() else { return }
@@ -91,6 +92,22 @@ final class BridgeModel: ObservableObject {
                 written += result
             }
         }
+        logBytes += bytes.count
+        if logBytes >= logLimit { rotateLog() }
+    }
+
+    private func rotateLog() {
+        close(logDescriptor)
+        logDescriptor = -1
+        logBytes = 0
+        let rotated = Self.rotatedLogURL(for: nativeLogURL)
+        try? FileManager.default.removeItem(at: rotated)
+        try? FileManager.default.moveItem(at: nativeLogURL, to: rotated)
+    }
+
+    static func rotatedLogURL(for url: URL) -> URL {
+        url.deletingPathExtension().appendingPathExtension("1")
+            .appendingPathExtension(url.pathExtension)
     }
 
     /// Opens the append-only log once and keeps it. Returns nil if the file cannot
@@ -106,6 +123,8 @@ final class BridgeModel: ObservableObject {
         let descriptor = open(nativeLogURL.path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
         guard descriptor >= 0 else { return nil }
         logDescriptor = descriptor
+        var info = stat()
+        logBytes = fstat(descriptor, &info) == 0 ? Int(info.st_size) : 0
         return descriptor
     }
 
@@ -176,14 +195,15 @@ final class BridgeModel: ObservableObject {
 
     /// Previews can render the interface without opening HID or the feedback port.
     /// `logURL` exists so tests append to a scratch file rather than the user's log.
-    init(startServices: Bool = true, logURL: URL = BridgeModel.defaultLogURL) {
+    init(startServices: Bool = true, logURL: URL = BridgeModel.defaultLogURL,
+         logLimit: Int = 8 << 20) {
         nativeLogURL = logURL
+        self.logLimit = logLimit
         let defaults = UserDefaults.standard
         host = defaults.string(forKey: "OSCHost") ?? host
         port = defaults.string(forKey: "OSCPort") ?? port
         guard startServices else { return }
         osc.onError = { [weak self] error in
-            self?.lastOutput = "UDP error: \(error)"
             self?.nativeOutput = "UDP error: \(error)"
         }
         if let savedPort = UInt16(port), savedPort > 0 {
@@ -264,12 +284,13 @@ final class BridgeModel: ObservableObject {
     /// One HID status callback. RGB transport statuses arrive on the same hook and
     /// must not move the HID lamp, which is the point of keeping the two separate.
     func handleNativeStatus(_ status: String, connected: Bool) {
-        nativeStatus = status
-        nativeConnected = connected
-        // Also persist it. UI-only status made a silent RGB transport failure
-        // completely invisible when diagnosing from the log.
-        logNative("STATUS \(connected ? "+" : "-") \(status)")
         if Self.isRGBStatus(status) {
+            // RGB failures can repeat on every frame (no device, a rejected report),
+            // so log only when the text changes rather than at meter rate.
+            if status != lastRGBStatus {
+                lastRGBStatus = status
+                logNative("STATUS \(connected ? "+" : "-") \(status)")
+            }
             // "RGB sent" is an ack of an LED frame, not of the HID link.
             if connected {
                 setRGBIndicator(.accepted)
@@ -278,6 +299,9 @@ final class BridgeModel: ObservableObject {
             }
             return
         }
+        // Persist it. UI-only status made a silent transport failure completely
+        // invisible when diagnosing from the log.
+        logNative("STATUS \(connected ? "+" : "-") \(status)")
         if Self.isConnectionFailure(status) {
             setHIDIndicator(.error)
         } else {
@@ -285,23 +309,29 @@ final class BridgeModel: ObservableObject {
         }
     }
 
+    /// Last RGB status text logged, so a failure repeating per frame logs once.
+    private var lastRGBStatus = ""
+
     func handleRGBStatus(_ image: [UInt8], status: IOReturn) {
-        // Transport acceptance is not proof of visible light. Nonzero bytes
-        // include dim values, so do not describe this count as lit LEDs.
-        // Counted with reduce rather than filter+count to avoid building a
-        // second 105-byte array on every frame.
-        let populated = image.reduce(into: 0) { count, value in
-            if value != 0 { count += 1 }
+        let indicator: Indicator = status == kIOReturnSuccess ? .accepted : .error
+        // Log transitions only: this fires for every frame sent.
+        if rgbIndicator != indicator.rawValue {
+            // Transport acceptance is not proof of visible light. Nonzero bytes
+            // include dim values, so do not describe this count as lit LEDs.
+            let populated = image.reduce(into: 0) { count, value in
+                if value != 0 { count += 1 }
+            }
+            logNative(status == kIOReturnSuccess
+                      ? "RGB frame accepted · \(populated) nonzero LED values"
+                      : "RGB error \(status)")
         }
-        rgbStatus = status == kIOReturnSuccess
-            ? "RGB frame accepted · \(populated) nonzero LED values"
-            : "RGB error \(status)"
-        setRGBIndicator(status == kIOReturnSuccess ? .accepted : .error)
+        setRGBIndicator(indicator)
     }
 
     func handleFeedbackStatus(_ status: String) {
-        feedbackStatus = status
         if let indicator = Self.feedbackIndicatorValue(for: status) {
+            // Lifecycle only (listening, bind failure); per-packet notices stay out.
+            logNative("FEEDBACK \(status)")
             setFeedbackIndicator(indicator)
         }
     }
@@ -322,7 +352,6 @@ final class BridgeModel: ObservableObject {
             seededProgress[deck] = progress
             native.seedJogPosition(deck: deck, progress: progress)
         }
-        feedbackStatus = "Feedback: \(state.deckNumbers.count) decks · \(state.meters.count) meters · \(feedbackRenders) frames"
         setFeedbackIndicator(.received)
         // Logging every frame would swamp the log at meter rates, so log the
         // first few and then every 50th: enough to see feedback live, cheap.
@@ -342,7 +371,6 @@ final class BridgeModel: ObservableObject {
     private func send(_ outgoing: OSCMessage) {
         osc.send(outgoing)
         eventCount += 1
-        lastOutput = "\(outgoing.address) · \(outgoing.integer)"
         flash = true
         flashReset?.cancel()
         let work = DispatchWorkItem { [weak self] in
